@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.2
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.3
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,13 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.3  アプリ内画面での記録に対応
+          ・実機ではChromeへ移す指定がアプリ内画面に回されてしまい、Chromeで開けなかった。
+            アプリのボタンはほかのサイトの画面には出せない（その画面はChromeと
+            サイト側のもので、アプリから触れない）ため、記録のしかたを増やした。
+            アプリ内画面の︙メニュー →「共有」→「KLマイリスト」で記録できる
+            （manifest.json に share_target を追加。使うにはアプリの入れ直しが必要）。
+            なお、その画面の︙メニューには「Chromeで開く」も元々ある
   v1.3.2  開き方と「戻る」操作の修正
           ・Chromeで開く処理を「住所を書き換える方式」から「リンクを押す方式」に変更
             （アプリとして起動中だと、前の方式ではアプリ内画面に回る端末があったため）。
@@ -309,7 +316,8 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       <b style="color:var(--ink)">使い方</b>：読み終わった話のページで、アドレスバーに「KLに記録」と入力して、☆マークの候補をタップします。<br>
       ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。<br>
       ※このアプリのボタン（サイトを開く／作品ページ／次の話を読む）から開くときは、自動でChromeで開きます。アプリの中の画面で開くとアドレスバーが無く、上記の記録ができないためです。<br>
-      ※もしアプリの中の画面で開いてしまった場合は、その画面の右上にある︙メニューから「Chromeで開く」を選んでください。
+      ※もしアプリの中の画面で開いてしまった場合は、その画面の右上にある︙メニューから「Chromeで開く」を選んでください。<br>
+      ※アプリの中の画面のままでも記録できます。読み終わったら、その画面の右上の︙メニュー →「共有」（または「ページを共有」）→ 共有先で「KLマイリスト」を選んでください。このアプリが開いて、その話まで読んだことに記録されます。（この方法を使うには、ホーム画面のアプリを一度消してから入れ直しが必要です。共有先への登録は、入れ直したときにされます）
     </p>
     <textarea id="bmCode" readonly style="width:100%; height:62px; background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; font-size:11px; color:var(--sub);"></textarea>
     <p id="bmWarn" style="display:none; font-size:12.5px; color:#FF9D9D; line-height:1.7; margin:8px 0 0;">
@@ -750,10 +758,33 @@ function openAddPrefill(seriesUrl, title, ep, chapterUrl){
   openSheet();
 }
 function applyReg(){
-  if (!location.hash.startsWith('#reg=')) return;
-  let url = '';
-  try{ url = decodeURIComponent(location.hash.slice(5)); }catch(e){ return; }
-  history.replaceState(null, '', location.pathname + location.search);
+  if (location.hash.startsWith('#reg=')){
+    let url = '';
+    try{ url = decodeURIComponent(location.hash.slice(5)); }catch(e){ return; }
+    history.replaceState(null, '', location.pathname + location.search);
+    applyRegUrl(url);
+    return;
+  }
+  applyShare();
+}
+/* アプリ内の画面（Chromeに移れなかったときの表示）で読み終わったとき用。
+   その画面の「共有」からこのアプリが選ばれると、話のURL付きで開かれるので、
+   それを受け取って同じように記録する（manifest.json の share_target が必要） */
+function applyShare(){
+  let cand = '';
+  try{
+    const q = new URLSearchParams(location.search);
+    cand = q.get('url') || '';
+    if (!cand && q.get('text')){
+      const m = q.get('text').match(/https?:\/\/[^\s]+/);
+      if (m) cand = m[0];
+    }
+  }catch(e){ return; }
+  if (!cand) return;
+  history.replaceState(null, '', location.pathname);
+  applyRegUrl(cand);
+}
+function applyRegUrl(url){
   if (!/^https?:\/\//i.test(url)) return;
   const ch = parseChapterUrl(url);
   const seriesUrl = ch ? ch.seriesUrl : url;
