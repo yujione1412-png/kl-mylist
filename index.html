@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.4
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.5
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,13 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.5  表紙の取り方を増やし、案内バーを削除
+          ・表紙が og:image に書かれておらず、本文の画像タグにだけある作品
+            （例：ジャンケットバンク）で表紙が表示されなかったのを修正。
+            話の一覧より前にある画像タグも探し、サイトにアップされた画像を
+            優先するようにした。話数が先に取れても、表紙が無ければ別の
+            取り寄せ方も試す
+          ・「Chromeで開く」案内バーは不要になったため削除した
   v1.3.4  一覧に表紙を表示
           ・話数の確認で作品ページを取り寄せるときに、表紙画像（og:image）も
             一緒に受け取って保存し、一覧の左側に小さく表示するようにした。
@@ -341,15 +348,6 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       <button class="btn primary" id="bkCloseBtn">閉じる</button>
     </div>
     <input type="file" id="importFile" accept=".json,application/json" style="display:none">
-  </div>
-</div>
-
-<!-- Chromeで開けなかったときの案内 -->
-<div id="openHelp" style="display:none; position:fixed; left:12px; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:70; background:var(--card2); border:1.5px solid var(--accent); border-radius:14px; padding:12px 14px;">
-  <p style="font-size:13px; line-height:1.7; margin:0 0 10px;">Chromeへ移れませんでした。下のボタンを直接押してみてください。</p>
-  <div style="display:flex; gap:8px;">
-    <a class="btn primary" id="openHelpLink" href="#">Chromeで開く</a>
-    <button class="btn" id="openHelpClose" style="flex:none; padding:11px 16px;">閉じる</button>
   </div>
 </div>
 
@@ -850,25 +848,62 @@ function fetchWithTimeout(url, ms){
 /* 作品ページの「表紙画像」の場所を取り出す。
    ページの頭にある og:image（紹介用の画像）が表紙に使われていることが多い。
    それが無い場合は、本文に出てくる最初の画像を使う（サイトのロゴは除く） */
+function coverUrlOk(u){
+  return /^https?:\/\//i.test(u) &&
+    !/(logo|icon|banner|avatar|spinner|loader|loading|placeholder|blank|transparent|no-?image|dummy|ads?[-_.])/i.test(u);
+}
 function extractCover(body, target){
   if (!body) return null;
+  const resolve = raw => {
+    try{
+      const u = new URL(raw, target).href;
+      return coverUrlOk(u) ? u : null;
+    }catch(e){ return null; }
+  };
+  /* 1) 紹介用画像の指定（og:image など） */
   const pats = [
-    /<meta[^>]*property\s*=\s*["']og:image["'][^>]*content\s*=\s*["']([^"']+)["']/i,
-    /<meta[^>]*content\s*=\s*["']([^"']+)["'][^>]*property\s*=\s*["']og:image["']/i,
+    /<meta[^>]*property\s*=\s*["']og:image(?::secure_url)?["'][^>]*content\s*=\s*["']([^"']+)["']/i,
+    /<meta[^>]*content\s*=\s*["']([^"']+)["'][^>]*property\s*=\s*["']og:image(?::secure_url)?["']/i,
     /<meta[^>]*name\s*=\s*["']twitter:image["'][^>]*content\s*=\s*["']([^"']+)["']/i,
-    /<meta[^>]*content\s*=\s*["']([^"']+)["'][^>]*name\s*=\s*["']twitter:image["']/i
+    /<meta[^>]*content\s*=\s*["']([^"']+)["'][^>]*name\s*=\s*["']twitter:image["']/i,
+    /<link[^>]*rel\s*=\s*["']image_src["'][^>]*href\s*=\s*["']([^"']+)["']/i,
+    /<link[^>]*href\s*=\s*["']([^"']+)["'][^>]*rel\s*=\s*["']image_src["']/i,
+    /"image"\s*:\s*\[\s*"(https?:[^"]+)"/i,
+    /"image"\s*:\s*"(https?:[^"]+)"/i
   ];
   for (const re of pats){
     const m = body.match(re);
     if (m){
-      try{
-        const u = new URL(m[1], target).href;
-        if (/^https?:\/\//i.test(u) && !/logo/i.test(u)) return u;
-      }catch(e){ /* 次を試す */ }
+      const u = resolve(m[1]);
+      if (u) return u;
     }
   }
+  /* 2) ページ本文の画像タグから探す。
+        表紙はタイトルの直後・話の一覧より前に置かれているので、
+        最初の話リンクより前にある画像だけを候補にする。
+        サイトにアップされた画像（/wp-content/uploads/）を優先する */
+  const cut = body.search(/chapter-\d/i);
+  const head = cut > 0 ? body.slice(0, cut) : body;
+  const cands = [];
+  const imgRe = /<img[^>]*>/gi;
+  let im;
+  while ((im = imgRe.exec(head)) !== null){
+    const tag = im[0];
+    const sm = tag.match(/\bdata-src\s*=\s*["']([^"']+)["']/i) ||
+               tag.match(/\bdata-lazy-src\s*=\s*["']([^"']+)["']/i) ||
+               tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i) ||
+               tag.match(/\bsrcset\s*=\s*["']([^"'\s,]+)/i);
+    if (!sm) continue;
+    const u = resolve(sm[1].replace(/&amp;/g, '&'));
+    if (u) cands.push(u);
+  }
+  if (cands.length){
+    const up = cands.find(u => /\/wp-content\/uploads\//i.test(u));
+    return up || cands[0];
+  }
+  /* 3) 読みやすい形式に変換されたページ（Markdown）の最初の画像 */
   const md = body.match(/!\[[^\]]*\]\((https?:[^)\s]+)\)/);
-  if (md && !/logo/i.test(md[1])) return md[1];
+  if (md && coverUrlOk(md[1])) return md[1];
   return null;
 }
 async function fetchSeriesInfo(seriesUrl){
@@ -880,6 +915,7 @@ async function fetchSeriesInfo(seriesUrl){
     'https://api.allorigins.win/get?url=' + encodeURIComponent(target)
   ];
   let cover = null;
+  let eps = null;
   for (const u of ways){
     try{
       let body = await fetchWithTimeout(u, 25000);
@@ -887,11 +923,16 @@ async function fetchSeriesInfo(seriesUrl){
         try{ body = JSON.parse(body).contents || ''; }catch(e){ /* JSONでなければそのまま */ }
       }
       if (!cover) cover = extractCover(body, target);
-      const eps = extractChapters(body, target);
-      if (eps.length) return { eps, cover };
+      if (!eps){
+        const e = extractChapters(body, target);
+        if (e.length) eps = e;
+      }
+      /* 話数だけ先に取れても、表紙がまだなら次の取り寄せ方も試す
+         （取り寄せ方によって、表紙の書き方が違うため） */
+      if (eps && cover) break;
     }catch(e){ /* 次の取り寄せ方を試す */ }
   }
-  return cover ? { eps: null, cover } : null;
+  return (eps || cover) ? { eps, cover } : null;
 }
 async function checkItem(it, force){
   if (checkingIds.has(it.id)) return;
@@ -943,10 +984,6 @@ function intentUrlFor(url){
     ';package=com.android.chrome' +
     ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
 }
-function showOpenHelp(iurl){
-  $('openHelpLink').href = iurl;
-  $('openHelp').style.display = 'block';
-}
 function openExternal(url){
   if (/Android/i.test(navigator.userAgent)){
     try{
@@ -959,9 +996,6 @@ function openExternal(url){
       document.body.appendChild(a);
       a.click();
       a.remove();
-      /* Chromeへ移れたら画面が隠れる。1.6秒たっても画面が見えたままなら
-         移れていないので、本物のボタン（直接押すと一番確実に渡せる）を出す */
-      setTimeout(() => { if (!document.hidden) showOpenHelp(iurl); }, 1600);
       return;
     }catch(e){ /* 通常の開き方に切り替える */ }
   }
@@ -1029,9 +1063,6 @@ $('bmCopyBtn').addEventListener('click', async () => {
 });
 $('bkCloseBtn').addEventListener('click', () => { $('bkSheet').style.display = 'none'; });
 $('bkSheet').addEventListener('click', e => { if (e.target === $('bkSheet')) $('bkSheet').style.display = 'none'; });
-$('openHelpClose').addEventListener('click', () => { $('openHelp').style.display = 'none'; });
-$('openHelpLink').addEventListener('click', () => { setTimeout(() => { $('openHelp').style.display = 'none'; }, 300); });
-
 /* ════════════════════════════════════════
    スマホの「戻る」操作への対応
    設定などを開いた状態で画面の端をスワイプして戻ると、履歴が無いため
@@ -1043,7 +1074,6 @@ history.pushState({ klGuard: 1 }, '');
 window.addEventListener('popstate', () => {
   if ($('bkSheet').style.display !== 'none') $('bkSheet').style.display = 'none';
   if ($('sheet').classList.contains('show')) closeSheet();
-  $('openHelp').style.display = 'none';
   history.pushState({ klGuard: 1 }, '');
 });
 $('exportBtn').addEventListener('click', exportData);
