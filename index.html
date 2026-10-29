@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.0
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.1
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,10 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.1  設定画面の修正
+          ・設定画面が画面より長くて上の文字が見切れ、スクロールもできなかったのを修正。
+            画面の92%の高さまでで区切り、中でスクロールできるようにした。
+            周りの暗い部分を押しても閉じられるようにもした
 ═══════════════════════════════════════════════════════════════════════════
 -->
 <style>
@@ -282,7 +286,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 
 <!-- バックアップ用シート -->
 <div id="bkSheet" style="display:none; position:fixed; inset:0; z-index:55; background:rgba(5,8,14,.6);">
-  <div style="position:absolute; left:0; right:0; bottom:0; background:var(--card); border-radius:22px 22px 0 0; padding:18px 16px calc(20px + env(safe-area-inset-bottom));">
+  <div style="position:absolute; left:0; right:0; bottom:0; max-height:92vh; max-height:92dvh; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; background:var(--card); border-radius:22px 22px 0 0; padding:18px 16px calc(20px + env(safe-area-inset-bottom));">
     <h2 style="font-size:17px; margin:0 0 8px;">設定・バックアップ</h2>
     <h3 style="font-size:14.5px; margin:6px 0 6px;">ホーム画面にアイコンを置く（アプリとして使う）</h3>
     <p style="font-size:12.5px; color:var(--sub); line-height:1.75; margin:0 0 8px;">
@@ -917,6 +921,7 @@ $('bmCopyBtn').addEventListener('click', async () => {
   }
 });
 $('bkCloseBtn').addEventListener('click', () => { $('bkSheet').style.display = 'none'; });
+$('bkSheet').addEventListener('click', e => { if (e.target === $('bkSheet')) $('bkSheet').style.display = 'none'; });
 $('exportBtn').addEventListener('click', exportData);
 $('importBtn').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', e => {
