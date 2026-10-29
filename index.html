@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12151C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KLマイリスト">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<title>KLマイリスト｜読んだ話数のメモ</title>
+<!--
+═══════════════════════════════════════════════════════════════════════════
+  KLマイリスト（klmanga.works 用の読書メモ） v1.2.1
+
+  気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
+  ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
+  ・バックアップ（書き出し／読み込み）で、端末を変えても引き継げます
+  ・ファイル構成（ZIPの中身をそのまま置いてください）
+      index.html / manifest.json / sw.js / icons/（画像4点）
+    置いたページを Chrome のメニューから「ホーム画面に追加」すると、
+    専用アイコンでアプリのように起動できます
+
+  v1.1.0 の追加
+  ・カードのボタンを「次の話（第○話）を読む」に変更。話のページを直接開きます
+    （話のURLは 作品ページURL + chapter-話数/ という決まった形なので組み立てられます。
+      小数話（188.1 など）がある作品では、次がずれることがあります。その場合は「作品ページ」から選んでください）
+  ・専用ブックマーク（ブックマークレット）で、読み終わった話をワンタップ記録できるようにしました
+    （設定は右上の「設定」から。ブラウザの決まりで他のサイトを自動で見張れないため、この方式です）
+  v1.1.1  設定画面の作り方の説明を、Chrome（Android）向けの手順に書き直した
+  v1.1.2  アプリをファイルとして開いているときは記録用コードを作らず、警告を出すようにした
+          （ファイルのままだと飛び先が content:// になり、押しても何も起きないため）
+  v1.2.0  ホーム画面の起動アイコンに対応（PWA）
+          ・専用アイコンを用意（本＋しおり＋KL、アプリの色に合わせたデザイン）
+          ・manifest.json と sw.js を追加。ホーム画面に追加するとアプリのように全画面で起動する
+          ・納品形式をZIP（index.html / manifest.json / sw.js / icons/）に変更
+  v1.2.1  アイコンと案内を仕上げ
+          ・マスカブルアイコン（端末が丸や四角に切り抜いて表示する用）を全面デザインに作り直し
+          ・「設定」の中に、ホーム画面（デスクトップ）にアイコンを置く手順を追加
+═══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{
+  --bg:#12151C; --card:#1D222D; --card2:#262C39;
+  --ink:#EDF0F5; --sub:#9AA5B5; --line:#333B4A;
+  --accent:#FF6B4A; --accent-ink:#fff;
+  --green:#3FB968; --gray:#7A8494;
+}
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; padding:0; }
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  padding-bottom:110px;
+}
+button{ font:inherit; background:none; border:none; color:inherit; cursor:pointer; }
+input,select,textarea{ font:inherit; color:var(--ink); }
+a{ color:var(--accent); }
+
+/* ---- ヘッダー ---- */
+header{
+  position:sticky; top:0; z-index:30;
+  background:rgba(18,21,28,.94); backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+}
+.h-row{ display:flex; align-items:center; gap:8px; }
+h1{ font-size:19px; margin:0; flex:1; letter-spacing:.02em; }
+h1 .logo{ color:var(--accent); }
+.h-btn{
+  background:var(--card2); border-radius:999px; padding:8px 12px;
+  font-size:12.5px; font-weight:700; color:var(--ink); text-decoration:none;
+  display:inline-block;
+}
+#summary{ font-size:12px; color:var(--sub); margin-top:6px; }
+
+/* ---- 検索・絞り込み ---- */
+.tools{ padding:10px 14px 2px; }
+#searchBox{
+  width:100%; background:var(--card); border:1.5px solid var(--line);
+  border-radius:12px; padding:11px 13px; font-size:15px; outline:none;
+}
+#searchBox:focus{ border-color:var(--accent); }
+.chips{ display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
+.chip{
+  background:var(--card); border:1.5px solid var(--line); color:var(--sub);
+  border-radius:999px; padding:7px 13px; font-size:13px; font-weight:700;
+}
+.chip.on{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.sort-row{ display:flex; align-items:center; gap:8px; margin-top:10px; font-size:12.5px; color:var(--sub); }
+#sortSel{
+  background:var(--card); border:1.5px solid var(--line); border-radius:9px;
+  padding:6px 8px; font-size:13px;
+}
+
+/* ---- 作品リスト ---- */
+#list{ padding:10px 14px; display:flex; flex-direction:column; gap:10px; }
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:16px;
+  padding:13px 14px;
+}
+.card-top{ display:flex; align-items:flex-start; gap:8px; }
+.title{
+  flex:1; min-width:0; font-size:16.5px; font-weight:700; line-height:1.4;
+  word-break:break-all;
+}
+.fav{
+  flex:none; font-size:21px; line-height:1; color:#5A6474; padding:2px 2px;
+}
+.fav.on{ color:#FFC53D; }
+.badge{
+  display:inline-block; font-size:11px; font-weight:700; border-radius:999px;
+  padding:3px 9px; margin-top:7px; color:#fff;
+}
+.badge.reading{ background:var(--accent); }
+.badge.done{ background:var(--green); }
+.badge.unread{ background:var(--gray); }
+.updated{ font-size:11.5px; color:var(--sub); margin-left:8px; }
+.memo{
+  font-size:12.5px; color:var(--sub); margin-top:7px; line-height:1.5;
+  word-break:break-all; white-space:pre-wrap;
+}
+/* 読んだ話数の操作 */
+.ep-row{
+  display:flex; align-items:center; gap:10px; margin-top:11px;
+  background:var(--card2); border-radius:12px; padding:8px 10px;
+}
+.ep-label{ font-size:12px; color:var(--sub); flex:none; }
+.ep-now{ flex:1; font-size:17px; font-weight:800; text-align:center; }
+.ep-now small{ font-size:12px; font-weight:600; color:var(--sub); }
+.ep-btn{
+  flex:none; width:42px; height:42px; border-radius:50%;
+  background:var(--bg); border:1.5px solid var(--line);
+  font-size:20px; font-weight:800; color:var(--ink);
+}
+.ep-btn.plus{ background:var(--accent); border-color:var(--accent); color:#fff; }
+/* カード下のボタン */
+.card-actions{ display:flex; gap:8px; margin-top:11px; }
+.btn{
+  flex:1; text-align:center; border-radius:11px; padding:11px 6px;
+  font-size:13.5px; font-weight:700; background:var(--card2); color:var(--ink);
+  text-decoration:none; display:block;
+}
+.btn.primary{ background:var(--accent); color:#fff; }
+.btn.small{ flex:none; padding:11px 14px; }
+
+.empty{
+  text-align:center; color:var(--sub); font-size:14px; line-height:1.8;
+  padding:44px 20px;
+}
+
+/* ---- 追加ボタン ---- */
+#addBtn{
+  position:fixed; z-index:40; right:16px;
+  bottom:calc(18px + env(safe-area-inset-bottom));
+  background:var(--accent); color:#fff; border-radius:999px;
+  padding:15px 22px; font-size:16px; font-weight:800;
+  box-shadow:0 6px 18px rgba(0,0,0,.45);
+}
+
+/* ---- 入力シート（追加・編集） ---- */
+#sheetBack{
+  position:fixed; inset:0; background:rgba(5,8,14,.6); z-index:50;
+  opacity:0; pointer-events:none; transition:opacity .2s;
+}
+#sheetBack.show{ opacity:1; pointer-events:auto; }
+#sheet{
+  position:fixed; z-index:51; left:0; right:0; bottom:0;
+  max-height:88vh; overflow-y:auto;
+  background:var(--card); border-radius:22px 22px 0 0;
+  padding:18px 16px calc(20px + env(safe-area-inset-bottom));
+  transform:translateY(105%); transition:transform .22s;
+}
+#sheet.show{ transform:none; }
+#sheet h2{ font-size:17px; margin:0 0 4px; }
+#sheet .hint{ font-size:12px; color:var(--sub); line-height:1.6; margin:0 0 12px; }
+.f-label{ display:block; font-size:12.5px; font-weight:700; color:var(--sub); margin:13px 0 5px; }
+.f-in{
+  width:100%; background:var(--bg); border:1.5px solid var(--line);
+  border-radius:11px; padding:11px 12px; font-size:15px; outline:none;
+}
+.f-in:focus{ border-color:var(--accent); }
+textarea.f-in{ min-height:64px; resize:vertical; }
+.status-pick{ display:flex; gap:7px; }
+.status-pick .chip{ flex:1; text-align:center; }
+.sheet-actions{ display:flex; gap:8px; margin-top:18px; }
+.sheet-actions .btn{ padding:13px 6px; font-size:15px; }
+#delBtn{ background:#4A2730; color:#FF9D9D; }
+
+/* ---- トースト ---- */
+#toast{
+  position:fixed; z-index:60; left:50%; transform:translateX(-50%) translateY(20px);
+  bottom:calc(86px + env(safe-area-inset-bottom));
+  background:#EDF0F5; color:#14181F; border-radius:999px;
+  padding:10px 18px; font-size:13.5px; font-weight:700;
+  opacity:0; pointer-events:none; transition:opacity .2s, transform .2s;
+  max-width:88vw; text-align:center;
+}
+#toast.show{ opacity:1; transform:translateX(-50%); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="h-row">
+    <h1><span class="logo">KL</span>マイリスト</h1>
+    <a class="h-btn" href="https://klmanga.works/" target="_blank" rel="noopener">サイトを開く</a>
+    <button class="h-btn" id="backupBtn">設定</button>
+  </div>
+  <div id="summary"></div>
+</header>
+
+<div class="tools">
+  <input id="searchBox" type="search" placeholder="作品名で探す" autocomplete="off">
+  <div class="chips" id="filterChips">
+    <button class="chip on" data-f="all">すべて</button>
+    <button class="chip" data-f="fav">★ お気に入り</button>
+    <button class="chip" data-f="reading">読書中</button>
+    <button class="chip" data-f="done">完読</button>
+    <button class="chip" data-f="unread">未読</button>
+  </div>
+  <div class="sort-row">
+    並び順：
+    <select id="sortSel">
+      <option value="updated">最近メモした順</option>
+      <option value="title">作品名順</option>
+      <option value="episode">読んだ話数が多い順</option>
+    </select>
+  </div>
+</div>
+
+<div id="list"></div>
+
+<button id="addBtn">＋ 作品を追加</button>
+
+<!-- 追加・編集シート -->
+<div id="sheetBack"></div>
+<div id="sheet">
+  <h2 id="sheetTitle">作品を追加</h2>
+  <p class="hint">klmanga.works で作品のページを開いて、URLをコピーして貼ると、作品名が自動で入ります。話のページのURLを貼っても大丈夫です（作品ページに直して、話数も取り出します）。</p>
+
+  <label class="f-label">作品ページのURL</label>
+  <input class="f-in" id="fUrl" type="url" inputmode="url" placeholder="https://klmanga.works/manga-raw/…" autocomplete="off">
+
+  <label class="f-label">作品名</label>
+  <input class="f-in" id="fTitle" type="text" placeholder="作品名" autocomplete="off">
+
+  <label class="f-label">何話まで読んだか（小数OK：例 188.2）</label>
+  <input class="f-in" id="fEp" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0">
+
+  <label class="f-label">状態</label>
+  <div class="status-pick" id="fStatus">
+    <button class="chip" data-s="unread">未読</button>
+    <button class="chip on" data-s="reading">読書中</button>
+    <button class="chip" data-s="done">完読</button>
+  </div>
+
+  <label class="f-label">メモ（任意）</label>
+  <textarea class="f-in" id="fMemo" placeholder="例：アニメ化したらしい、など"></textarea>
+
+  <div class="sheet-actions">
+    <button class="btn" id="cancelBtn">やめる</button>
+    <button class="btn" id="delBtn" style="display:none">削除</button>
+    <button class="btn primary" id="saveBtn">保存する</button>
+  </div>
+</div>
+
+<!-- バックアップ用シート -->
+<div id="bkSheet" style="display:none; position:fixed; inset:0; z-index:55; background:rgba(5,8,14,.6);">
+  <div style="position:absolute; left:0; right:0; bottom:0; background:var(--card); border-radius:22px 22px 0 0; padding:18px 16px calc(20px + env(safe-area-inset-bottom));">
+    <h2 style="font-size:17px; margin:0 0 8px;">設定・バックアップ</h2>
+    <h3 style="font-size:14.5px; margin:6px 0 6px;">ホーム画面にアイコンを置く（アプリとして使う）</h3>
+    <p style="font-size:12.5px; color:var(--sub); line-height:1.75; margin:0 0 8px;">
+      このページをホーム画面に登録すると、専用アイコン（開いた本としおり）からアプリのように起動できます。データはそのまま引き継がれます。<br>
+      <b style="color:var(--ink)">Android（Chrome）</b>：右上の︙メニュー →「アプリをインストール」（出ない場合は「ホーム画面に追加」）→「インストール」を押す<br>
+      <b style="color:var(--ink)">iPhone（Safari）</b>：下の共有ボタン →「ホーム画面に追加」<br>
+      <b style="color:var(--ink)">パソコン（Chrome）</b>：アドレスバーの右端に出るインストールのマーク、または︙メニュー →「保存して共有」→「ショートカットを作成」で、デスクトップにアイコンが置けます
+    </p>
+    <h3 style="font-size:14.5px; margin:16px 0 6px;">読み終わった話を自動で記録する</h3>
+    <p style="font-size:12.5px; color:var(--sub); line-height:1.75; margin:0 0 8px;">
+      専用のブックマークを作っておくと、klmangaで読み終わった話のページで操作するだけで、「何話まで読んだか」が自動で記録されます。<br>
+      <b style="color:var(--ink)">作り方（Chrome）</b>：①下のコードをコピーする → ②Chromeの︙メニューから☆で、このページをブックマークする → ③︙メニュー→「ブックマーク」→いまのブックマークを長押し→「編集」で、名前を「KLに記録」に変え、URLの欄にコードを貼り付けて保存する<br>
+      <b style="color:var(--ink)">使い方</b>：読み終わった話のページで、アドレスバーに「KLに記録」と入力して、☆マークの候補をタップします。<br>
+      ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。
+    </p>
+    <textarea id="bmCode" readonly style="width:100%; height:62px; background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; font-size:11px; color:var(--sub);"></textarea>
+    <p id="bmWarn" style="display:none; font-size:12.5px; color:#FF9D9D; line-height:1.7; margin:8px 0 0;">
+      ⚠ いまこのアプリは「ファイル」として開かれているため、記録用コードが作れません。先にこの index.html を Vercel などに置いて、公開されたURL（https://…）で開いてから、ここでコードを作ってください。
+    </p>
+    <div style="display:flex; gap:8px; margin:8px 0 4px;">
+      <button class="btn" id="bmCopyBtn">コードをコピー</button>
+    </div>
+    <h3 style="font-size:14.5px; margin:16px 0 6px;">バックアップ</h3>
+    <p style="font-size:12.5px; color:var(--sub); line-height:1.7; margin:0 0 12px;">
+      データはこの端末の中だけに保存されています。機種変更やブラウザのデータ消去に備えて、ときどき書き出しておくのがおすすめです。読み込むと、今のデータは上書きされます。
+    </p>
+    <div style="display:flex; gap:8px;">
+      <button class="btn" id="exportBtn">書き出す</button>
+      <button class="btn" id="importBtn">読み込む</button>
+      <button class="btn primary" id="bkCloseBtn">閉じる</button>
+    </div>
+    <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ════════════════════════════════════════
+   データの保存（この端末のブラウザ内）
+   ════════════════════════════════════════ */
+const STORE_KEY = 'kl_mylist_v1';
+let items = [];
+try{
+  const raw = localStorage.getItem(STORE_KEY);
+  if (raw) items = JSON.parse(raw) || [];
+}catch(e){ items = []; }
+
+function save(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(items)); }catch(e){ /* 保存できない環境では何もしない */ }
+}
+function uid(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/* ════════════════════════════════════════
+   小物
+   ════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, ch =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+let toastTimer = null;
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+// 話数の表示（188 →「188」、188.2 →「188.2」）
+function fmtEp(ep){
+  const n = Number(ep) || 0;
+  return (Math.round(n * 10) / 10).toString();
+}
+function dateStr(ts){
+  const d = new Date(ts);
+  return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+/* 話のページのURLを分解する
+   例: https://klmanga.works/manga-raw/つぐもも-raw-free/chapter-188-2/
+       → 作品ページ …/つぐもも-raw-free/ 、話数 188.2
+   作品ページのURLなら null を返す */
+function parseChapterUrl(url){
+  try{
+    const u = new URL(url);
+    const m = u.pathname.match(/^(.*\/manga-raw\/[^/]+\/)chapter-(\d+)(?:-(\d+))?\/?$/);
+    if (!m) return null;
+    let ep = parseInt(m[2], 10);
+    if (m[3]) ep += parseInt(m[3], 10) / Math.pow(10, m[3].length);
+    return { seriesUrl: u.origin + m[1], episode: Math.round(ep * 10) / 10 };
+  }catch(e){ return null; }
+}
+// 作品ページのURLを取り出す（話のURLが入っていても作品ページに直す）
+function seriesUrlOf(url){
+  const ch = parseChapterUrl(url);
+  return ch ? ch.seriesUrl : url;
+}
+// 「次の話」のページURLを組み立てる（読んだ話数の次の整数話）
+function nextChapterUrl(it){
+  const base = seriesUrlOf(it.url).replace(/\/?$/, '/');
+  const ep = Number(it.episode) || 0;
+  const n = ep > 0 ? Math.floor(ep) + 1 : 1;
+  return base + 'chapter-' + n + '/';
+}
+
+/* URLから作品名の候補を作る
+   例: https://klmanga.works/manga-raw/つぐもも-raw-free/ → つぐもも */
+function titleFromUrl(url){
+  const ch = parseChapterUrl(url);
+  const target = ch ? ch.seriesUrl : url;
+  try{
+    const u = new URL(target);
+    const seg = u.pathname.split('/').filter(Boolean).pop() || '';
+    let s = decodeURIComponent(seg);
+    s = s.replace(/[-_ ]?raw[-_ ]?free$/i, '');   // 末尾の -raw-free を取る
+    s = s.replace(/[-_ ]+$/g, '');
+    if (/^[a-z0-9\-_ ]+$/i.test(s)) s = s.replace(/[-_]+/g, ' '); // 英字だけのときは区切りを空白に
+    return s.trim();
+  }catch(e){ return ''; }
+}
+
+/* ════════════════════════════════════════
+   一覧の表示
+   ════════════════════════════════════════ */
+let filter = 'all';
+let query = '';
+
+const STATUS_LABEL = { unread: '未読', reading: '読書中', done: '完読' };
+
+function visibleItems(){
+  let arr = items.slice();
+  if (filter === 'fav') arr = arr.filter(it => it.fav);
+  else if (filter !== 'all') arr = arr.filter(it => it.status === filter);
+  if (query){
+    const q = query.toLowerCase();
+    arr = arr.filter(it => (it.title || '').toLowerCase().includes(q) || (it.memo || '').toLowerCase().includes(q));
+  }
+  const sort = $('sortSel').value;
+  if (sort === 'title') arr.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
+  else if (sort === 'episode') arr.sort((a, b) => (Number(b.episode) || 0) - (Number(a.episode) || 0));
+  else arr.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // お気に入りは常に上に
+  arr.sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
+  return arr;
+}
+
+function render(){
+  const arr = visibleItems();
+  const reading = items.filter(it => it.status === 'reading').length;
+  $('summary').textContent = '登録 ' + items.length + ' 作品 ／ 読書中 ' + reading + ' 作品';
+
+  if (!items.length){
+    $('list').innerHTML = '<div class="empty">まだ作品が登録されていません。<br>右下の「＋ 作品を追加」から、<br>気に入った作品を登録してみてください。</div>';
+    return;
+  }
+  if (!arr.length){
+    $('list').innerHTML = '<div class="empty">条件に合う作品がありません。</div>';
+    return;
+  }
+  $('list').innerHTML = arr.map(it => {
+    const ep = Number(it.episode) || 0;
+    return '<div class="card">' +
+      '<div class="card-top">' +
+        '<div class="title">' + esc(it.title) + '</div>' +
+        '<button class="fav' + (it.fav ? ' on' : '') + '" onclick="toggleFav(\'' + it.id + '\')" aria-label="お気に入り">★</button>' +
+      '</div>' +
+      '<span class="badge ' + esc(it.status) + '">' + STATUS_LABEL[it.status] + '</span>' +
+      '<span class="updated">最終メモ：' + dateStr(it.updatedAt || it.createdAt) + '</span>' +
+      (it.memo ? '<div class="memo">' + esc(it.memo) + '</div>' : '') +
+      '<div class="ep-row">' +
+        '<span class="ep-label">読んだ話</span>' +
+        '<button class="ep-btn" onclick="stepEp(\'' + it.id + '\',-1)" aria-label="1話もどす">−</button>' +
+        '<div class="ep-now">' + (ep > 0 ? '第 ' + fmtEp(ep) + ' 話' : 'まだ読んでいない') + (ep > 0 ? '<small> まで</small>' : '') + '</div>' +
+        '<button class="ep-btn plus" onclick="stepEp(\'' + it.id + '\',1)" aria-label="1話すすめる">＋</button>' +
+      '</div>' +
+      '<div class="card-actions">' +
+        '<a class="btn primary" href="' + esc(nextChapterUrl(it)) + '" target="_blank" rel="noopener">' +
+          ((Number(it.episode) || 0) > 0 ? '次の話（第' + (Math.floor(Number(it.episode)) + 1) + '話）を読む' : '第1話から読む') + '</a>' +
+        '<a class="btn small" href="' + esc(seriesUrlOf(it.url)) + '" target="_blank" rel="noopener">作品ページ</a>' +
+        '<button class="btn small" onclick="openEdit(\'' + it.id + '\')">編集</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+/* 話数を ±1 する（読んだら＋を押すだけ） */
+function stepEp(id, d){
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  let ep = (Number(it.episode) || 0) + d;
+  if (ep < 0) ep = 0;
+  it.episode = Math.round(ep * 10) / 10;
+  if (it.episode > 0 && it.status === 'unread') it.status = 'reading'; // 読み始めたら自動で読書中に
+  it.updatedAt = Date.now();
+  save(); render();
+}
+function toggleFav(id){
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  it.fav = !it.fav;
+  save(); render();
+}
+
+/* ════════════════════════════════════════
+   追加・編集シート
+   ════════════════════════════════════════ */
+let editingId = null;
+let sheetStatus = 'reading';
+let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
+
+function setSheetStatus(s){
+  sheetStatus = s;
+  document.querySelectorAll('#fStatus .chip').forEach(ch =>
+    ch.classList.toggle('on', ch.dataset.s === s));
+}
+function openSheet(){
+  $('sheetBack').classList.add('show');
+  $('sheet').classList.add('show');
+}
+function closeSheet(){
+  $('sheetBack').classList.remove('show');
+  $('sheet').classList.remove('show');
+  editingId = null;
+}
+function openAdd(){
+  editingId = null;
+  pendingLastUrl = '';
+  $('sheetTitle').textContent = '作品を追加';
+  $('fUrl').value = ''; $('fTitle').value = ''; $('fEp').value = ''; $('fMemo').value = '';
+  setSheetStatus('reading');
+  $('delBtn').style.display = 'none';
+  openSheet();
+}
+function openEdit(id){
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  editingId = id;
+  $('sheetTitle').textContent = '作品を編集';
+  $('fUrl').value = it.url || '';
+  $('fTitle').value = it.title || '';
+  $('fEp').value = it.episode ? fmtEp(it.episode) : '';
+  $('fMemo').value = it.memo || '';
+  setSheetStatus(it.status || 'reading');
+  $('delBtn').style.display = '';
+  openSheet();
+}
+function saveSheet(){
+  let url = $('fUrl').value.trim();
+  const title = $('fTitle').value.trim();
+  let ep = Math.max(0, Math.round((parseFloat($('fEp').value) || 0) * 10) / 10);
+  const memo = $('fMemo').value.trim();
+  if (!url || !/^https?:\/\//i.test(url)){ toast('作品ページのURLを入れてください'); return; }
+  if (!title){ toast('作品名を入れてください'); return; }
+
+  // 話のページのURLが貼られたら、作品ページのURLに直し、最後に読んだ話として覚える
+  let lastUrl = '';
+  const ch = parseChapterUrl(url);
+  if (ch){
+    lastUrl = url;
+    url = ch.seriesUrl;
+    if (!parseFloat($('fEp').value)) ep = ch.episode; // 話数が空なら、URLの話数を入れる
+  }
+  if (!lastUrl && pendingLastUrl){ lastUrl = pendingLastUrl; }
+  pendingLastUrl = '';
+
+  if (editingId){
+    const it = items.find(x => x.id === editingId);
+    if (!it) return;
+    it.url = url; it.title = title; it.episode = ep; it.memo = memo; it.status = sheetStatus;
+    if (lastUrl) it.lastUrl = lastUrl;
+    it.updatedAt = Date.now();
+    toast('保存しました');
+  }else{
+    if (items.some(x => seriesUrlOf(x.url) === url)){ toast('その作品はすでに登録されています'); return; }
+    items.push({
+      id: uid(), title, url, episode: ep, status: sheetStatus,
+      fav: false, memo, lastUrl, createdAt: Date.now(), updatedAt: Date.now()
+    });
+    toast('登録しました');
+  }
+  save(); render(); closeSheet();
+}
+function deleteItem(){
+  if (!editingId) return;
+  const it = items.find(x => x.id === editingId);
+  if (!it) return;
+  if (!confirm('「' + it.title + '」を削除しますか？')) return;
+  items = items.filter(x => x.id !== editingId);
+  save(); render(); closeSheet();
+  toast('削除しました');
+}
+
+/* ════════════════════════════════════════
+   バックアップ（書き出し／読み込み）
+   ════════════════════════════════════════ */
+function exportData(){
+  const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kl-mylist-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  toast('書き出しました');
+}
+function importData(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const arr = JSON.parse(reader.result);
+      if (!Array.isArray(arr)) throw new Error('bad');
+      const clean = arr.filter(x => x && x.title && x.url).map(x => ({
+        id: x.id || uid(),
+        title: String(x.title), url: String(x.url),
+        episode: Math.max(0, Number(x.episode) || 0),
+        status: ['unread', 'reading', 'done'].includes(x.status) ? x.status : 'reading',
+        fav: !!x.fav, memo: String(x.memo || ''), lastUrl: String(x.lastUrl || ''),
+        createdAt: Number(x.createdAt) || Date.now(),
+        updatedAt: Number(x.updatedAt) || Date.now()
+      }));
+      if (!clean.length){ toast('読み込める作品がありませんでした'); return; }
+      if (!confirm(clean.length + ' 作品を読み込みます。今のデータは上書きされます。よろしいですか？')) return;
+      items = clean;
+      save(); render();
+      $('bkSheet').style.display = 'none';
+      toast('読み込みました');
+    }catch(e){
+      toast('ファイルを読み込めませんでした');
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ════════════════════════════════════════
+   ブックマークレットからの自動記録
+   klmanga で読み終わった話のページで専用ブックマークを押すと、
+   このアプリが「#reg=話のURL」付きで開かれ、ここで記録する。
+   （ブラウザの決まりで、ほかのサイトを自動で見張ることはできないため、
+     押すのは1回だけにしている）
+   ════════════════════════════════════════ */
+function normalizeUrl(u){
+  try{
+    const x = new URL(u);
+    return (x.origin + decodeURIComponent(x.pathname)).replace(/\/+$/, '').toLowerCase();
+  }catch(e){
+    return String(u || '').replace(/\/+$/, '').toLowerCase();
+  }
+}
+// 追加シートに内容を入れた状態で開く（未登録の作品がブックマークレットから来たとき）
+function openAddPrefill(seriesUrl, title, ep, chapterUrl){
+  editingId = null;
+  pendingLastUrl = chapterUrl || '';
+  $('sheetTitle').textContent = '作品を追加';
+  $('fUrl').value = seriesUrl || '';
+  $('fTitle').value = title || '';
+  $('fEp').value = ep ? fmtEp(ep) : '';
+  $('fMemo').value = '';
+  setSheetStatus('reading');
+  $('delBtn').style.display = 'none';
+  openSheet();
+}
+function applyReg(){
+  if (!location.hash.startsWith('#reg=')) return;
+  let url = '';
+  try{ url = decodeURIComponent(location.hash.slice(5)); }catch(e){ return; }
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!/^https?:\/\//i.test(url)) return;
+  const ch = parseChapterUrl(url);
+  const seriesUrl = ch ? ch.seriesUrl : url;
+  const target = items.find(x => normalizeUrl(seriesUrlOf(x.url)) === normalizeUrl(seriesUrl));
+  if (target){
+    if (!ch){ toast('「' + target.title + '」は登録済みです'); return; }
+    if (ch.episode > (Number(target.episode) || 0)) target.episode = ch.episode;
+    target.lastUrl = url;
+    if (target.status === 'unread') target.status = 'reading';
+    target.updatedAt = Date.now();
+    save(); render();
+    toast('「' + target.title + '」を第' + fmtEp(target.episode) + '話まで読んだことにしました');
+  }else{
+    openAddPrefill(seriesUrl, titleFromUrl(seriesUrl), ch ? ch.episode : 0, ch ? url : '');
+    toast('新しい作品です。内容を確かめて「保存する」を押してください');
+  }
+}
+// ブックマークレットのコード（このアプリ自身のURLを埋め込む）
+function bookmarkletCode(){
+  const self = location.origin + location.pathname;
+  return "javascript:window.open('" + self + "#reg='+encodeURIComponent(location.href),'_blank');";
+}
+
+/* ════════════════════════════════════════
+   イベント
+   ════════════════════════════════════════ */
+$('addBtn').addEventListener('click', openAdd);
+$('cancelBtn').addEventListener('click', closeSheet);
+$('sheetBack').addEventListener('click', closeSheet);
+$('saveBtn').addEventListener('click', saveSheet);
+$('delBtn').addEventListener('click', deleteItem);
+$('fUrl').addEventListener('input', () => {
+  // URLを入れたら、作品名が空のときだけ自動で候補を入れる
+  if (!$('fTitle').value.trim()){
+    const t = titleFromUrl($('fUrl').value.trim());
+    if (t) $('fTitle').value = t;
+  }
+});
+document.querySelectorAll('#fStatus .chip').forEach(ch =>
+  ch.addEventListener('click', () => setSheetStatus(ch.dataset.s)));
+document.querySelectorAll('#filterChips .chip').forEach(ch =>
+  ch.addEventListener('click', () => {
+    filter = ch.dataset.f;
+    document.querySelectorAll('#filterChips .chip').forEach(c => c.classList.toggle('on', c === ch));
+    render();
+  }));
+$('searchBox').addEventListener('input', () => { query = $('searchBox').value.trim(); render(); });
+$('sortSel').addEventListener('change', render);
+$('backupBtn').addEventListener('click', () => {
+  const ok = /^https?:$/.test(location.protocol);
+  $('bmCode').value = ok ? bookmarkletCode() : '（公開されたページで開くと、ここにコードが出ます）';
+  $('bmWarn').style.display = ok ? 'none' : 'block';
+  $('bkSheet').style.display = 'block';
+});
+$('bmCopyBtn').addEventListener('click', async () => {
+  if (!/^https?:$/.test(location.protocol)){
+    toast('先にVercelなどに置いたページ（https://…）で開いてください');
+    return;
+  }
+  const ta = $('bmCode');
+  ta.value = bookmarkletCode();
+  try{
+    await navigator.clipboard.writeText(ta.value);
+    toast('コードをコピーしました');
+  }catch(e){
+    ta.select();
+    document.execCommand('copy');
+    toast('コードをコピーしました');
+  }
+});
+$('bkCloseBtn').addEventListener('click', () => { $('bkSheet').style.display = 'none'; });
+$('exportBtn').addEventListener('click', exportData);
+$('importBtn').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', e => {
+  if (e.target.files && e.target.files[0]) importData(e.target.files[0]);
+  e.target.value = '';
+});
+
+render();
+applyReg();
+
+/* ホーム画面に登録したアイコンから、アプリとして起動できるようにする */
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
