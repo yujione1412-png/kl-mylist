@@ -1,7 +1,7 @@
 /* KLマイリスト Service Worker
    ホーム画面からアプリとして起動できるようにするための仕組み。
    基本は通信を優先し、取れないときだけ保存分を出す（更新がすぐ反映されるように）。 */
-const CACHE = 'kl-mylist-v7';
+const CACHE = 'kl-mylist-v8';
 const ASSETS = [
   './',
   './index.html',
