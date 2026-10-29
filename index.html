@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.1
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.2
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,13 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.2  開き方と「戻る」操作の修正
+          ・Chromeで開く処理を「住所を書き換える方式」から「リンクを押す方式」に変更
+            （アプリとして起動中だと、前の方式ではアプリ内画面に回る端末があったため）。
+            それでも移れないときは、直接押せる「Chromeで開く」ボタンを下に出す
+          ・スマホの「戻る」（画面端のスワイプ）でアプリが閉じてしまうのを修正。
+            戻る操作で、開いている設定・編集の画面を閉じるようにした。
+            何も開いていないときは、アプリに留まる
   v1.3.1  設定画面の修正
           ・設定画面が画面より長くて上の文字が見切れ、スクロールもできなかったのを修正。
             画面の92%の高さまでで区切り、中でスクロールできるようにした。
@@ -301,7 +308,8 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       <b style="color:var(--ink)">作り方（Chrome）</b>：①下のコードをコピーする → ②Chromeの︙メニューから☆で、このページをブックマークする → ③︙メニュー→「ブックマーク」→いまのブックマークを長押し→「編集」で、名前を「KLに記録」に変え、URLの欄にコードを貼り付けて保存する<br>
       <b style="color:var(--ink)">使い方</b>：読み終わった話のページで、アドレスバーに「KLに記録」と入力して、☆マークの候補をタップします。<br>
       ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。<br>
-      ※このアプリのボタン（サイトを開く／作品ページ／次の話を読む）から開くときは、自動でChromeで開きます。アプリの中の画面で開くとアドレスバーが無く、上記の記録ができないためです。
+      ※このアプリのボタン（サイトを開く／作品ページ／次の話を読む）から開くときは、自動でChromeで開きます。アプリの中の画面で開くとアドレスバーが無く、上記の記録ができないためです。<br>
+      ※もしアプリの中の画面で開いてしまった場合は、その画面の右上にある︙メニューから「Chromeで開く」を選んでください。
     </p>
     <textarea id="bmCode" readonly style="width:100%; height:62px; background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; font-size:11px; color:var(--sub);"></textarea>
     <p id="bmWarn" style="display:none; font-size:12.5px; color:#FF9D9D; line-height:1.7; margin:8px 0 0;">
@@ -320,6 +328,15 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       <button class="btn primary" id="bkCloseBtn">閉じる</button>
     </div>
     <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+  </div>
+</div>
+
+<!-- Chromeで開けなかったときの案内 -->
+<div id="openHelp" style="display:none; position:fixed; left:12px; right:12px; bottom:calc(14px + env(safe-area-inset-bottom)); z-index:70; background:var(--card2); border:1.5px solid var(--accent); border-radius:14px; padding:12px 14px;">
+  <p style="font-size:13px; line-height:1.7; margin:0 0 10px;">Chromeへ移れませんでした。下のボタンを直接押してみてください。</p>
+  <div style="display:flex; gap:8px;">
+    <a class="btn primary" id="openHelpLink" href="#">Chromeで開く</a>
+    <button class="btn" id="openHelpClose" style="flex:none; padding:11px 16px;">閉じる</button>
   </div>
 </div>
 
@@ -840,21 +857,34 @@ async function runChecks(){
    アプリ内画面で開いてしまい、「KLに記録」のブックマークが使えない。
    Androidでは Chrome アプリを指定して開くことで、アドレスバーのあるタブにする。
    ════════════════════════════════════════ */
+function intentUrlFor(url){
+  const u = new URL(url);
+  return 'intent://' + u.host + u.pathname + u.search +
+    '#Intent;scheme=' + u.protocol.replace(':', '') +
+    ';action=android.intent.action.VIEW' +
+    ';category=android.intent.category.BROWSABLE' +
+    ';package=com.android.chrome' +
+    ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+}
+function showOpenHelp(iurl){
+  $('openHelpLink').href = iurl;
+  $('openHelp').style.display = 'block';
+}
 function openExternal(url){
   if (/Android/i.test(navigator.userAgent)){
     try{
-      const u = new URL(url);
-      const intentUrl = 'intent://' + u.host + u.pathname + u.search +
-        '#Intent;scheme=' + u.protocol.replace(':', '') +
-        ';package=com.android.chrome' +
-        ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
-      const timer = setTimeout(() => {
-        if (!document.hidden) window.open(url, '_blank', 'noopener');
-      }, 1200);
-      document.addEventListener('visibilitychange', function h(){
-        if (document.hidden){ clearTimeout(timer); document.removeEventListener('visibilitychange', h); }
-      });
-      location.href = intentUrl;
+      const iurl = intentUrlFor(url);
+      /* v1.3.1までは住所を書き換える方式だったが、アプリとして起動している状態では
+         アプリ内画面に回されてしまう端末があったため、リンクを押す方式に変えた */
+      const a = document.createElement('a');
+      a.href = iurl;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      /* Chromeへ移れたら画面が隠れる。1.6秒たっても画面が見えたままなら
+         移れていないので、本物のボタン（直接押すと一番確実に渡せる）を出す */
+      setTimeout(() => { if (!document.hidden) showOpenHelp(iurl); }, 1600);
       return;
     }catch(e){ /* 通常の開き方に切り替える */ }
   }
@@ -922,6 +952,23 @@ $('bmCopyBtn').addEventListener('click', async () => {
 });
 $('bkCloseBtn').addEventListener('click', () => { $('bkSheet').style.display = 'none'; });
 $('bkSheet').addEventListener('click', e => { if (e.target === $('bkSheet')) $('bkSheet').style.display = 'none'; });
+$('openHelpClose').addEventListener('click', () => { $('openHelp').style.display = 'none'; });
+$('openHelpLink').addEventListener('click', () => { setTimeout(() => { $('openHelp').style.display = 'none'; }, 300); });
+
+/* ════════════════════════════════════════
+   スマホの「戻る」操作への対応
+   設定などを開いた状態で画面の端をスワイプして戻ると、履歴が無いため
+   アプリ自体が閉じる（縮む）動きになっていた。
+   履歴に目印を1つ置き、戻る操作が来たら「開いている画面を閉じる」に使い、
+   何も開いていなければ目印を置き直してアプリに留まるようにする。
+   ════════════════════════════════════════ */
+history.pushState({ klGuard: 1 }, '');
+window.addEventListener('popstate', () => {
+  if ($('bkSheet').style.display !== 'none') $('bkSheet').style.display = 'none';
+  if ($('sheet').classList.contains('show')) closeSheet();
+  $('openHelp').style.display = 'none';
+  history.pushState({ klGuard: 1 }, '');
+});
 $('exportBtn').addEventListener('click', exportData);
 $('importBtn').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', e => {
