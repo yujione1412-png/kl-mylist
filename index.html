@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.2.1
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.0
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -40,6 +40,15 @@
   v1.2.1  アイコンと案内を仕上げ
           ・マスカブルアイコン（端末が丸や四角に切り抜いて表示する用）を全面デザインに作り直し
           ・「設定」の中に、ホーム画面（デスクトップ）にアイコンを置く手順を追加
+  v1.3.0  「次の話」の確認と、開き方の改善
+          ・作品ページを取り寄せて「存在する話数」を確認するようにした
+            （サイトのページはブラウザの決まりで直接読めないため、公開プロキシ経由。
+              結果は端末に保存して12時間使い回す。失敗時は前回の結果のまま）
+          ・「次の話を読む」ボタンは、次の話が存在すると確認できたときだけ表示。
+            小数話（例：32.1話）が次の場合も、その話を正しく開く
+          ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
+          ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
+            （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
 ═══════════════════════════════════════════════════════════════════════════
 -->
 <style>
@@ -118,6 +127,9 @@ h1 .logo{ color:var(--accent); }
 .badge.reading{ background:var(--accent); }
 .badge.done{ background:var(--green); }
 .badge.unread{ background:var(--gray); }
+.badge.new{ background:#FFC53D; color:#231A04; }
+.badge.latest{ background:transparent; border:1px solid var(--line); color:var(--sub); }
+.next-info{ font-size:12px; color:var(--sub); margin-top:9px; line-height:1.6; }
 .updated{ font-size:11.5px; color:var(--sub); margin-left:8px; }
 .memo{
   font-size:12.5px; color:var(--sub); margin-top:7px; line-height:1.5;
@@ -207,7 +219,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 <header>
   <div class="h-row">
     <h1><span class="logo">KL</span>マイリスト</h1>
-    <a class="h-btn" href="https://klmanga.works/" target="_blank" rel="noopener">サイトを開く</a>
+    <button class="h-btn" onclick="openExternal('https://klmanga.works/')">サイトを開く</button>
     <button class="h-btn" id="backupBtn">設定</button>
   </div>
   <div id="summary"></div>
@@ -284,7 +296,8 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       専用のブックマークを作っておくと、klmangaで読み終わった話のページで操作するだけで、「何話まで読んだか」が自動で記録されます。<br>
       <b style="color:var(--ink)">作り方（Chrome）</b>：①下のコードをコピーする → ②Chromeの︙メニューから☆で、このページをブックマークする → ③︙メニュー→「ブックマーク」→いまのブックマークを長押し→「編集」で、名前を「KLに記録」に変え、URLの欄にコードを貼り付けて保存する<br>
       <b style="color:var(--ink)">使い方</b>：読み終わった話のページで、アドレスバーに「KLに記録」と入力して、☆マークの候補をタップします。<br>
-      ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。
+      ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。<br>
+      ※このアプリのボタン（サイトを開く／作品ページ／次の話を読む）から開くときは、自動でChromeで開きます。アプリの中の画面で開くとアドレスバーが無く、上記の記録ができないためです。
     </p>
     <textarea id="bmCode" readonly style="width:100%; height:62px; background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; font-size:11px; color:var(--sub);"></textarea>
     <p id="bmWarn" style="display:none; font-size:12.5px; color:#FF9D9D; line-height:1.7; margin:8px 0 0;">
@@ -343,10 +356,10 @@ function toast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
-// 話数の表示（188 →「188」、188.2 →「188.2」）
+// 話数の表示（188 →「188」、188.2 →「188.2」、188.15 →「188.15」）
 function fmtEp(ep){
   const n = Number(ep) || 0;
-  return (Math.round(n * 10) / 10).toString();
+  return (Math.round(n * 100) / 100).toString();
 }
 function dateStr(ts){
   const d = new Date(ts);
@@ -372,12 +385,65 @@ function seriesUrlOf(url){
   const ch = parseChapterUrl(url);
   return ch ? ch.seriesUrl : url;
 }
-// 「次の話」のページURLを組み立てる（読んだ話数の次の整数話）
-function nextChapterUrl(it){
+// 話数 → URLの末尾（188 → chapter-188/、188.2 → chapter-188-2/、188.15 → chapter-188-15/）
+function epToSlug(ep){
+  const i = Math.floor(ep + 1e-9);
+  const frac = Math.round((ep - i) * 100);
+  if (!frac) return 'chapter-' + i + '/';
+  if (frac % 10 === 0) return 'chapter-' + i + '-' + (frac / 10) + '/';
+  return 'chapter-' + i + '-' + (frac < 10 ? '0' + frac : frac) + '/';
+}
+// 指定した話数のページURL
+function chapterUrlFor(it, ep){
   const base = seriesUrlOf(it.url).replace(/\/?$/, '/');
+  return base + epToSlug(ep);
+}
+/* 確認済みの話リスト（it.chapters）から、読んだ話数の「次に存在する話」を返す。
+   リストがまだ無い（未確認）ときは null。
+   次の話が無いことが分かっているときも null なので、区別は it.chapters の有無で見る */
+function nextChapterOf(it){
+  if (!Array.isArray(it.chapters) || !it.chapters.length) return null;
   const ep = Number(it.episode) || 0;
-  const n = ep > 0 ? Math.floor(ep) + 1 : 1;
-  return base + 'chapter-' + n + '/';
+  for (const ch of it.chapters){
+    if (ch > ep + 1e-9) return ch;
+  }
+  return null;
+}
+// URLから作品のスラッグ（/manga-raw/ の次の部分）を小文字・デコード済みで取り出す
+function slugOfUrl(url){
+  try{
+    const seg = new URL(url).pathname.split('/').filter(Boolean);
+    const i = seg.indexOf('manga-raw');
+    if (i < 0 || !seg[i + 1]) return '';
+    return decodeURIComponent(seg[i + 1]).toLowerCase();
+  }catch(e){ return ''; }
+}
+/* ページの文章・HTMLから、その作品の「存在する話数」を全部拾う
+   （ほかの作品のリンクが混ざっていても、スラッグが一致するものだけ数える） */
+function extractChapters(text, seriesUrl){
+  const target = slugOfUrl(seriesUrl);
+  if (!target || !text) return [];
+  const found = new Set();
+  const re = /manga-raw\/([^/"'\s]+)\/chapter-(\d+)(?:-(\d+))?/gi;
+  let m;
+  while ((m = re.exec(text)) !== null){
+    let slug = m[1];
+    try{ slug = decodeURIComponent(slug); }catch(e){ /* そのまま使う */ }
+    if (slug.toLowerCase() !== target) continue;
+    let ep = parseInt(m[2], 10);
+    if (m[3]) ep += parseInt(m[3], 10) / Math.pow(10, m[3].length);
+    found.add(Math.round(ep * 100) / 100);
+  }
+  return Array.from(found).sort((a, b) => a - b);
+}
+// 「この話は存在する」と分かった話数を、確認済みリストに足しておく（読んだ記録など）
+function noteEpisodeExists(it, ep){
+  ep = Math.round((Number(ep) || 0) * 100) / 100;
+  if (!Array.isArray(it.chapters) || !ep) return;
+  if (!it.chapters.some(ch => Math.abs(ch - ep) < 1e-9)){
+    it.chapters.push(ep);
+    it.chapters.sort((a, b) => a - b);
+  }
 }
 
 /* URLから作品名の候補を作る
@@ -424,7 +490,10 @@ function visibleItems(){
 function render(){
   const arr = visibleItems();
   const reading = items.filter(it => it.status === 'reading').length;
-  $('summary').textContent = '登録 ' + items.length + ' 作品 ／ 読書中 ' + reading + ' 作品';
+  const newCount = items.filter(it => (Number(it.episode) || 0) > 0 && nextChapterOf(it) !== null).length;
+  $('summary').textContent = '登録 ' + items.length + ' 作品 ／ 読書中 ' + reading + ' 作品' +
+    (newCount ? ' ／ 新しい話あり ' + newCount + ' 作品' : '') +
+    (checkingIds.size ? '（新しい話を確認中…）' : '');
 
   if (!items.length){
     $('list').innerHTML = '<div class="empty">まだ作品が登録されていません。<br>右下の「＋ 作品を追加」から、<br>気に入った作品を登録してみてください。</div>';
@@ -436,12 +505,32 @@ function render(){
   }
   $('list').innerHTML = arr.map(it => {
     const ep = Number(it.episode) || 0;
+    const known = Array.isArray(it.chapters);
+    const next = nextChapterOf(it);
+    // 一覧でのお知らせ（次の話がある／最新話まで読了）
+    let stateBadge = '';
+    if (next !== null && ep > 0) stateBadge = '<span class="badge new">新しい話あり：第' + fmtEp(next) + '話</span> ';
+    else if (known && ep > 0) stateBadge = '<span class="badge latest">最新話まで読了</span> ';
+    // 「次の話」ボタンは、存在が確認できたときだけ出す
+    let primaryBtn = '';
+    let nextInfo = '';
+    if (next !== null){
+      primaryBtn = '<button class="btn primary" onclick="openNext(\'' + it.id + '\')">' +
+        (ep > 0 ? '次の話（第' + fmtEp(next) + '話）を読む' : '第' + fmtEp(next) + '話から読む') + '</button>';
+    }else if (!known){
+      nextInfo = checkingIds.has(it.id)
+        ? '<div class="next-info">新しい話があるか確認しています…</div>'
+        : (failedIds.has(it.id)
+            ? '<div class="next-info">新しい話を確認できませんでした（通信の状態で失敗）。時間をおいてアプリを開き直すと、もう一度確認します。</div>'
+            : '<div class="next-info">新しい話があるか、まだ確認していません。</div>');
+    }
     return '<div class="card">' +
       '<div class="card-top">' +
         '<div class="title">' + esc(it.title) + '</div>' +
         '<button class="fav' + (it.fav ? ' on' : '') + '" onclick="toggleFav(\'' + it.id + '\')" aria-label="お気に入り">★</button>' +
       '</div>' +
-      '<span class="badge ' + esc(it.status) + '">' + STATUS_LABEL[it.status] + '</span>' +
+      '<span class="badge ' + esc(it.status) + '">' + STATUS_LABEL[it.status] + '</span> ' +
+      stateBadge +
       '<span class="updated">最終メモ：' + dateStr(it.updatedAt || it.createdAt) + '</span>' +
       (it.memo ? '<div class="memo">' + esc(it.memo) + '</div>' : '') +
       '<div class="ep-row">' +
@@ -450,10 +539,10 @@ function render(){
         '<div class="ep-now">' + (ep > 0 ? '第 ' + fmtEp(ep) + ' 話' : 'まだ読んでいない') + (ep > 0 ? '<small> まで</small>' : '') + '</div>' +
         '<button class="ep-btn plus" onclick="stepEp(\'' + it.id + '\',1)" aria-label="1話すすめる">＋</button>' +
       '</div>' +
+      nextInfo +
       '<div class="card-actions">' +
-        '<a class="btn primary" href="' + esc(nextChapterUrl(it)) + '" target="_blank" rel="noopener">' +
-          ((Number(it.episode) || 0) > 0 ? '次の話（第' + (Math.floor(Number(it.episode)) + 1) + '話）を読む' : '第1話から読む') + '</a>' +
-        '<a class="btn small" href="' + esc(seriesUrlOf(it.url)) + '" target="_blank" rel="noopener">作品ページ</a>' +
+        primaryBtn +
+        '<button class="' + (primaryBtn ? 'btn small' : 'btn') + '" onclick="openSeries(\'' + it.id + '\')">作品ページ</button>' +
         '<button class="btn small" onclick="openEdit(\'' + it.id + '\')">編集</button>' +
       '</div>' +
     '</div>';
@@ -467,6 +556,7 @@ function stepEp(id, d){
   let ep = (Number(it.episode) || 0) + d;
   if (ep < 0) ep = 0;
   it.episode = Math.round(ep * 10) / 10;
+  noteEpisodeExists(it, it.episode); // ＋で進めた話数は「存在する話」として覚える
   if (it.episode > 0 && it.status === 'unread') it.status = 'reading'; // 読み始めたら自動で読書中に
   it.updatedAt = Date.now();
   save(); render();
@@ -544,6 +634,7 @@ function saveSheet(){
     const it = items.find(x => x.id === editingId);
     if (!it) return;
     it.url = url; it.title = title; it.episode = ep; it.memo = memo; it.status = sheetStatus;
+    noteEpisodeExists(it, ep);
     if (lastUrl) it.lastUrl = lastUrl;
     it.updatedAt = Date.now();
     toast('保存しました');
@@ -591,6 +682,8 @@ function importData(file){
         episode: Math.max(0, Number(x.episode) || 0),
         status: ['unread', 'reading', 'done'].includes(x.status) ? x.status : 'reading',
         fav: !!x.fav, memo: String(x.memo || ''), lastUrl: String(x.lastUrl || ''),
+        chapters: Array.isArray(x.chapters) ? x.chapters.map(Number).filter(n => n > 0).sort((a, b) => a - b) : undefined,
+        checkedAt: Number(x.checkedAt) || 0,
         createdAt: Number(x.createdAt) || Date.now(),
         updatedAt: Number(x.updatedAt) || Date.now()
       }));
@@ -648,10 +741,12 @@ function applyReg(){
     if (!ch){ toast('「' + target.title + '」は登録済みです'); return; }
     if (ch.episode > (Number(target.episode) || 0)) target.episode = ch.episode;
     target.lastUrl = url;
+    noteEpisodeExists(target, target.episode);
     if (target.status === 'unread') target.status = 'reading';
     target.updatedAt = Date.now();
     save(); render();
     toast('「' + target.title + '」を第' + fmtEp(target.episode) + '話まで読んだことにしました');
+    checkItem(target, true); // その先の話があるか、取り寄せ直す
   }else{
     openAddPrefill(seriesUrl, titleFromUrl(seriesUrl), ch ? ch.episode : 0, ch ? url : '');
     toast('新しい作品です。内容を確かめて「保存する」を押してください');
@@ -661,6 +756,117 @@ function applyReg(){
 function bookmarkletCode(){
   const self = location.origin + location.pathname;
   return "javascript:window.open('" + self + "#reg='+encodeURIComponent(location.href),'_blank');";
+}
+
+/* ════════════════════════════════════════
+   新しい話があるかの確認
+   klmanga のページは、ブラウザの決まり（CORS）でこのアプリから直接は読めない。
+   そのため公開プロキシ（中継サービス）を通して作品ページを取り寄せ、
+   存在する話数の一覧を作る。結果は端末に保存し、12時間は使い回す。
+   失敗したときは前回の結果のままにし、「次の話がある」とは断定しない。
+   ════════════════════════════════════════ */
+const CHECK_TTL = 12 * 60 * 60 * 1000;   // 確認結果を使い回す時間（12時間）
+const RETRY_TTL = 30 * 60 * 1000;        // 失敗したとき、次に試すまでの間隔（30分）
+const checkingIds = new Set();
+const failedIds = new Set();
+
+function fetchWithTimeout(url, ms){
+  // 時間切れはこちら側で見切る（中断の仕組みは端末差で失敗することがあるため使わない）
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms));
+  const req = fetch(url, { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.text(); });
+  return Promise.race([req, timeout]);
+}
+async function fetchChapterList(seriesUrl){
+  let target = seriesUrlOf(seriesUrl);
+  try{ target = new URL(target).href; }catch(e){ /* そのまま使う */ }
+  const ways = [
+    'https://r.jina.ai/' + target,
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(target),
+    'https://api.allorigins.win/get?url=' + encodeURIComponent(target)
+  ];
+  for (const u of ways){
+    try{
+      let body = await fetchWithTimeout(u, 25000);
+      if (u.indexOf('/get?') >= 0){
+        try{ body = JSON.parse(body).contents || ''; }catch(e){ /* JSONでなければそのまま */ }
+      }
+      const eps = extractChapters(body, target);
+      if (eps.length) return eps;
+    }catch(e){ /* 次の取り寄せ方を試す */ }
+  }
+  return null;
+}
+async function checkItem(it, force){
+  if (checkingIds.has(it.id)) return;
+  const now = Date.now();
+  if (!force){
+    if (Array.isArray(it.chapters) && it.checkedAt && now - it.checkedAt < CHECK_TTL) return;
+    if (!Array.isArray(it.chapters) && it.lastTry && now - it.lastTry < RETRY_TTL) return; // 失敗直後は少し待つ
+  }
+  checkingIds.add(it.id);
+  failedIds.delete(it.id);
+  render();
+  const eps = await fetchChapterList(it.url);
+  checkingIds.delete(it.id);
+  if (eps){
+    it.chapters = eps;
+    it.checkedAt = Date.now();
+    noteEpisodeExists(it, it.episode);
+  }else{
+    it.lastTry = Date.now();
+    if (!Array.isArray(it.chapters)) failedIds.add(it.id);
+  }
+  save(); render();
+}
+let checkingAll = false;
+async function runChecks(){
+  if (checkingAll || !/^https?:$/.test(location.protocol)) return;
+  checkingAll = true;
+  for (const it of items.slice()){
+    await checkItem(it, false);
+    await new Promise(r => setTimeout(r, 350));
+  }
+  checkingAll = false;
+}
+
+/* ════════════════════════════════════════
+   サイトを Chrome で開く
+   アプリ（ホーム画面のアイコン）から普通にリンクを開くと、アドレスバーの無い
+   アプリ内画面で開いてしまい、「KLに記録」のブックマークが使えない。
+   Androidでは Chrome アプリを指定して開くことで、アドレスバーのあるタブにする。
+   ════════════════════════════════════════ */
+function openExternal(url){
+  if (/Android/i.test(navigator.userAgent)){
+    try{
+      const u = new URL(url);
+      const intentUrl = 'intent://' + u.host + u.pathname + u.search +
+        '#Intent;scheme=' + u.protocol.replace(':', '') +
+        ';package=com.android.chrome' +
+        ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+      const timer = setTimeout(() => {
+        if (!document.hidden) window.open(url, '_blank', 'noopener');
+      }, 1200);
+      document.addEventListener('visibilitychange', function h(){
+        if (document.hidden){ clearTimeout(timer); document.removeEventListener('visibilitychange', h); }
+      });
+      location.href = intentUrl;
+      return;
+    }catch(e){ /* 通常の開き方に切り替える */ }
+  }
+  window.open(url, '_blank', 'noopener');
+}
+function openNext(id){
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  const next = nextChapterOf(it);
+  if (next === null) return;
+  openExternal(chapterUrlFor(it, next));
+}
+function openSeries(id){
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  openExternal(seriesUrlOf(it.url));
 }
 
 /* ════════════════════════════════════════
@@ -720,6 +926,10 @@ $('importFile').addEventListener('change', e => {
 
 render();
 applyReg();
+runChecks();
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) runChecks(); // アプリに戻ってきたときも、期限切れなら確認し直す
+});
 
 /* ホーム画面に登録したアイコンから、アプリとして起動できるようにする */
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
