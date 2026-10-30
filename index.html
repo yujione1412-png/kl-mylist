@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.5
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.6
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,14 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.6  表紙が取れない問題への対策
+          ・ジャンケットバンクで実例を確認：表紙は中継（jina）の変換では落ちており、
+            もう一方の中継（allorigins）から取る必要があるが、その中継は一時的な
+            エラー（520/522）で失敗することがあった。各中継を1回ずつで諦めず、
+            表紙が取れるまで繰り返し試すようにした
+          ・表紙が無い作品から先に確認するように順番を変更
+          ・表紙の画像が直接読み込めない場合は、画像用の中継を通して表示する
+          ・表紙が無い作品は、頭文字の場所を押すとその作品だけ取り直せるようにした
   v1.3.5  表紙の取り方を増やし、案内バーを削除
           ・表紙が og:image に書かれておらず、本文の画像タグにだけある作品
             （例：ジャンケットバンク）で表紙が表示されなかったのを修正。
@@ -557,8 +565,8 @@ function render(){
             : '<div class="next-info">新しい話があるか、まだ確認していません。</div>');
     }
     const coverHtml = (it.cover && /^https?:\/\//i.test(it.cover))
-      ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'" style="width:54px; height:72px; object-fit:cover; border-radius:8px; flex:none; background:var(--card2);">'
-      : '<div style="width:54px; height:72px; border-radius:8px; flex:none; background:var(--card2); color:var(--sub); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:700;">' + esc((it.title || '？').slice(0, 1)) + '</div>';
+      ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="coverImgErr(this)" style="width:54px; height:72px; object-fit:cover; border-radius:8px; flex:none; background:var(--card2);">'
+      : '<button onclick="refreshInfo(\'' + it.id + '\')" aria-label="表紙を取り直す" style="width:54px; height:72px; border-radius:8px; flex:none; background:var(--card2); color:var(--sub); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:700; padding:0;">' + esc((it.title || '？').slice(0, 1)) + '</button>';
     return '<div class="card">' +
       '<div style="display:flex; gap:11px; align-items:flex-start;">' +
         coverHtml +
@@ -909,16 +917,19 @@ function extractCover(body, target){
 async function fetchSeriesInfo(seriesUrl){
   let target = seriesUrlOf(seriesUrl);
   try{ target = new URL(target).href; }catch(e){ /* そのまま使う */ }
+  /* 中継サービス（allorigins）は一時的なエラー（520/522など）で失敗することが
+     あるため、表紙が取れるまでは同じ取り寄せ方をもう一度ずつ試す */
+  const raw = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target);
+  const get = 'https://api.allorigins.win/get?url=' + encodeURIComponent(target);
   const ways = [
     'https://r.jina.ai/' + target,
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent(target),
-    'https://api.allorigins.win/get?url=' + encodeURIComponent(target)
+    raw, get, raw, get
   ];
   let cover = null;
   let eps = null;
   for (const u of ways){
     try{
-      let body = await fetchWithTimeout(u, 25000);
+      let body = await fetchWithTimeout(u, 20000);
       if (u.indexOf('/get?') >= 0){
         try{ body = JSON.parse(body).contents || ''; }catch(e){ /* JSONでなければそのまま */ }
       }
@@ -962,11 +973,29 @@ let checkingAll = false;
 async function runChecks(){
   if (checkingAll || !/^https?:$/.test(location.protocol)) return;
   checkingAll = true;
-  for (const it of items.slice()){
+  // 表紙がまだ無い作品を先に確認する（後ろの方の作品が後回しにならないように）
+  const ordered = items.slice().sort((a, b) => (a.cover ? 1 : 0) - (b.cover ? 1 : 0));
+  for (const it of ordered){
     await checkItem(it, false);
     await new Promise(r => setTimeout(r, 350));
   }
   checkingAll = false;
+}
+// 表紙の場所を押したとき：その作品だけ取り寄せ直す
+function refreshInfo(id){
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  toast('表紙と新しい話を確認しています…');
+  checkItem(it, true);
+}
+// 表紙画像が直接は読み込めなかったとき：画像用の中継を通してもう一度試す
+function coverImgErr(img){
+  if (img.dataset.fb){ img.style.display = 'none'; return; }
+  img.dataset.fb = '1';
+  try{
+    const u = new URL(img.src);
+    img.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(u.host + u.pathname);
+  }catch(e){ img.style.display = 'none'; }
 }
 
 /* ════════════════════════════════════════
