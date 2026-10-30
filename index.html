@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.0
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.2
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,22 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.2  「未読」の意味を変更
+          ・「未読」を、まだ読み始めていない作品の区分ではなく
+            「読んでいない話がある作品」の意味に変更し、話数から自動で判定する。
+            読書中・完読の作品に新しい話が増えた場合も「未読」になる。
+            まだ1話も読んでいない作品も「未読」
+          ・一覧の表示、上の件数表示、未読での絞り込み、標準の並び順
+            （未読が一番上）は、この判定でそろえた
+          ・編集画面の状態の選択肢からは「未読」を外した（自動判定のため）。
+            状態は「読書中」「完読」の2つになった
+  v1.4.1  バージョン表示と、新規登録の初期状態
+          ・設定画面の先頭にバージョンを表示するようにした
+          ・新規登録の初期状態が「読書中」固定で、未読のつもりで登録した作品が
+            「読書中」になってしまう問題を修正。初期値は「未読」にし、
+            共有やブックマークから話数つきで来た場合は「読書中」にする
+            （並び順自体は v1.4.0 で未読が一番上に来るようになっていたが、
+             未読の作品が1つも無い状態になっていた）
   v1.4.0  登録日と並び順
           ・登録日（createdAt）を一覧にも表示するようにした（最終メモの横に「登録：」）。
             登録自体は以前から記録されていたので、既存の作品にも登録日が付く
@@ -328,7 +344,6 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 
   <label class="f-label">状態</label>
   <div class="status-pick" id="fStatus">
-    <button class="chip" data-s="unread">未読</button>
     <button class="chip on" data-s="reading">読書中</button>
     <button class="chip" data-s="done">完読</button>
   </div>
@@ -351,6 +366,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 <div id="bkSheet" style="display:none; position:fixed; inset:0; z-index:55; background:rgba(5,8,14,.6);">
   <div style="position:absolute; left:0; right:0; bottom:0; max-height:92vh; max-height:92dvh; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; background:var(--card); border-radius:22px 22px 0 0; padding:18px 16px calc(20px + env(safe-area-inset-bottom));">
     <h2 style="font-size:17px; margin:0 0 8px;">設定・バックアップ</h2>
+    <p id="appVer" style="font-size:12px; color:var(--sub); margin:0 0 10px;"></p>
     <h3 style="font-size:14.5px; margin:6px 0 6px;">ホーム画面にアイコンを置く（アプリとして使う）</h3>
     <p style="font-size:12.5px; color:var(--sub); line-height:1.75; margin:0 0 8px;">
       このページをホーム画面に登録すると、専用アイコン（開いた本としおり）からアプリのように起動できます。データはそのまま引き継がれます。<br>
@@ -474,6 +490,20 @@ function chapterUrlFor(it, ep){
 /* 確認済みの話リスト（it.chapters）から、読んだ話数の「次に存在する話」を返す。
    リストがまだ無い（未確認）ときは null。
    次の話が無いことが分かっているときも null なので、区別は it.chapters の有無で見る */
+/* 「未読」の定義：読んでいない話があること。
+   ・まだ1話も読んでいない（読んだ話数が0）作品は、全部の話が未読
+   ・読んだ話より先の話がある作品は、その先が未読
+   状態（読書中／完読）とは別に、話数から自動で判定する */
+function hasUnread(it){
+  const ep = Number(it.episode) || 0;
+  if (ep <= 0) return true;
+  return nextChapterOf(it) !== null;
+}
+// 一覧に出す状態：未読の話があれば「未読」、なければ「完読」か「読書中」
+function displayStatus(it){
+  if (hasUnread(it)) return 'unread';
+  return it.status === 'done' ? 'done' : 'reading';
+}
 function nextChapterOf(it){
   if (!Array.isArray(it.chapters) || !it.chapters.length) return null;
   const ep = Number(it.episode) || 0;
@@ -546,7 +576,9 @@ const STATUS_LABEL = { unread: '未読', reading: '読書中', done: '完読' };
 function visibleItems(){
   let arr = items.slice();
   if (filter === 'fav') arr = arr.filter(it => it.fav);
-  else if (filter !== 'all') arr = arr.filter(it => it.status === filter);
+  else if (filter === 'unread') arr = arr.filter(it => hasUnread(it));
+  else if (filter === 'done') arr = arr.filter(it => it.status === 'done' && !hasUnread(it));
+  else if (filter === 'reading') arr = arr.filter(it => it.status !== 'done' && !hasUnread(it));
   if (query){
     const q = query.toLowerCase();
     arr = arr.filter(it => (it.title || '').toLowerCase().includes(q) || (it.memo || '').toLowerCase().includes(q));
@@ -558,8 +590,8 @@ function visibleItems(){
   else if (sort === 'regOld') arr.sort((a, b) => regAt(a) - regAt(b));
   else if (sort === 'updated') arr.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   else arr.sort((a, b) => {
-    // 標準の並び：未読を一番上にし、それ以外は登録日の新しい順
-    const g = it => (it.status === 'unread' ? 0 : 1);
+    // 標準の並び：未読（読んでいない話がある）を一番上にし、それ以外は登録日の新しい順
+    const g = it => (hasUnread(it) ? 0 : 1);
     return (g(a) - g(b)) || (regAt(b) - regAt(a));
   });
   // お気に入りは常に上に
@@ -569,9 +601,9 @@ function visibleItems(){
 
 function render(){
   const arr = visibleItems();
-  const reading = items.filter(it => it.status === 'reading').length;
+  const unreadCount = items.filter(it => hasUnread(it)).length;
   const newCount = items.filter(it => (Number(it.episode) || 0) > 0 && nextChapterOf(it) !== null).length;
-  $('summary').textContent = '登録 ' + items.length + ' 作品 ／ 読書中 ' + reading + ' 作品' +
+  $('summary').textContent = '登録 ' + items.length + ' 作品 ／ 未読 ' + unreadCount + ' 作品' +
     (newCount ? ' ／ 新しい話あり ' + newCount + ' 作品' : '') +
     (checkingIds.size ? '（新しい話を確認中…）' : '');
 
@@ -615,7 +647,7 @@ function render(){
             '<div class="title">' + esc(it.title) + '</div>' +
             '<button class="fav' + (it.fav ? ' on' : '') + '" onclick="toggleFav(\'' + it.id + '\')" aria-label="お気に入り">★</button>' +
           '</div>' +
-          '<span class="badge ' + esc(it.status) + '">' + STATUS_LABEL[it.status] + '</span> ' +
+          '<span class="badge ' + displayStatus(it) + '">' + STATUS_LABEL[displayStatus(it)] + '</span> ' +
           stateBadge +
           '<span class="updated">最終メモ：' + dateStr(it.updatedAt || it.createdAt) + ' ／ 登録：' + dateStr(regAt(it)) + '</span>' +
           (it.memo ? '<div class="memo">' + esc(it.memo) + '</div>' : '') +
@@ -660,10 +692,12 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
+const APP_VERSION = '1.4.2';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
 function setSheetStatus(s){
+  if (s === 'unread') s = 'reading'; // 「未読」は話数から自動判定するため、状態の選択肢からは外した
   sheetStatus = s;
   document.querySelectorAll('#fStatus .chip').forEach(ch =>
     ch.classList.toggle('on', ch.dataset.s === s));
@@ -1155,6 +1189,7 @@ $('importFile').addEventListener('change', e => {
   e.target.value = '';
 });
 
+$('appVer').textContent = 'KLマイリスト　バージョン ' + APP_VERSION;
 render();
 applyReg();
 runChecks();
