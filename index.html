@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.8
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.0
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,14 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.0  登録日と並び順
+          ・登録日（createdAt）を一覧にも表示するようにした（最終メモの横に「登録：」）。
+            登録自体は以前から記録されていたので、既存の作品にも登録日が付く
+          ・標準の並び順を変更：未読を一番上にし、それ以外は登録日の新しい順。
+            お気に入りを上に固定する仕様はそのまま
+          ・並び替えの選択肢に「登録日の新しい順」「登録日の古い順」を追加
+          ・ついでに、バックアップの読み込みで表紙（手動で貼った分も）が
+            消えてしまう問題を修正
   v1.3.8  読み込みの回数・頻度を当初に戻した
           ・表紙のリトライを増やした影響で「新しい話を確認中…」が
             ほぼずっと出るようになっていたため、取り寄せは当初の仕様に戻した
@@ -289,6 +297,9 @@ textarea.f-in{ min-height:64px; resize:vertical; }
   <div class="sort-row">
     並び順：
     <select id="sortSel">
+      <option value="default">未読・登録日の新しい順</option>
+      <option value="regNew">登録日の新しい順</option>
+      <option value="regOld">登録日の古い順</option>
       <option value="updated">最近メモした順</option>
       <option value="title">作品名順</option>
       <option value="episode">読んだ話数が多い順</option>
@@ -423,6 +434,10 @@ function dateStr(ts){
   const d = new Date(ts);
   return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate();
 }
+// 登録日（古いデータで登録日が無いものは、最終更新日で代用する）
+function regAt(it){
+  return Number(it.createdAt) || Number(it.updatedAt) || 0;
+}
 
 /* 話のページのURLを分解する
    例: https://klmanga.works/manga-raw/つぐもも-raw-free/chapter-188-2/
@@ -539,7 +554,14 @@ function visibleItems(){
   const sort = $('sortSel').value;
   if (sort === 'title') arr.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'ja'));
   else if (sort === 'episode') arr.sort((a, b) => (Number(b.episode) || 0) - (Number(a.episode) || 0));
-  else arr.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  else if (sort === 'regNew') arr.sort((a, b) => regAt(b) - regAt(a));
+  else if (sort === 'regOld') arr.sort((a, b) => regAt(a) - regAt(b));
+  else if (sort === 'updated') arr.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  else arr.sort((a, b) => {
+    // 標準の並び：未読を一番上にし、それ以外は登録日の新しい順
+    const g = it => (it.status === 'unread' ? 0 : 1);
+    return (g(a) - g(b)) || (regAt(b) - regAt(a));
+  });
   // お気に入りは常に上に
   arr.sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
   return arr;
@@ -595,7 +617,7 @@ function render(){
           '</div>' +
           '<span class="badge ' + esc(it.status) + '">' + STATUS_LABEL[it.status] + '</span> ' +
           stateBadge +
-          '<span class="updated">最終メモ：' + dateStr(it.updatedAt || it.createdAt) + '</span>' +
+          '<span class="updated">最終メモ：' + dateStr(it.updatedAt || it.createdAt) + ' ／ 登録：' + dateStr(regAt(it)) + '</span>' +
           (it.memo ? '<div class="memo">' + esc(it.memo) + '</div>' : '') +
         '</div>' +
       '</div>' +
@@ -759,6 +781,7 @@ function importData(file){
         episode: Math.max(0, Number(x.episode) || 0),
         status: ['unread', 'reading', 'done'].includes(x.status) ? x.status : 'reading',
         fav: !!x.fav, memo: String(x.memo || ''), lastUrl: String(x.lastUrl || ''),
+        cover: String(x.cover || ''), coverManual: !!x.coverManual,
         chapters: Array.isArray(x.chapters) ? x.chapters.map(Number).filter(n => n > 0).sort((a, b) => a - b) : undefined,
         checkedAt: Number(x.checkedAt) || 0,
         createdAt: Number(x.createdAt) || Date.now(),
