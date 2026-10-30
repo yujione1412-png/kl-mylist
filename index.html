@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.7
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.8
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,14 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.8  読み込みの回数・頻度を当初に戻した
+          ・表紙のリトライを増やした影響で「新しい話を確認中…」が
+            ほぼずっと出るようになっていたため、取り寄せは当初の仕様に戻した
+            （中継は3通りまで、話数が取れたら終了。確認済みの作品は12時間あける。
+             表紙が無い作品も、その確認のついでに取れたときだけ入る）
+          ・表紙が出ない作品は、編集画面で表紙URLを貼って固定する運用に確定。
+            頭文字を押しての取り直し（結果表示つき）と、画像が読めないときの
+            中継表示は、そのまま残してある
   v1.3.7  表紙の取り寄せ先をさらに追加し、手動でも貼れるようにした
           ・取り寄せ用の中継に codetabs を追加（allorigins とは別の経路）。
             経路を変えながら最大7回まで試す
@@ -934,41 +942,33 @@ function extractCover(body, target){
 async function fetchSeriesInfo(seriesUrl){
   let target = seriesUrlOf(seriesUrl);
   try{ target = new URL(target).href; }catch(e){ /* そのまま使う */ }
-  /* 中継サービスは一時的なエラー（520/522など）で失敗することがあるため、
-     表紙が取れるまでは、中継を変えながら繰り返し試す。
-     codetabs は allorigins とは別の中継（こちらもページの原文を返してくれる） */
-  const raw = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target);
-  const get = 'https://api.allorigins.win/get?url=' + encodeURIComponent(target);
-  const tabs = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target);
+  /* 取り寄せ方は当初の3通り。話数が取れたら、その時点で終わりにする
+     （表紙は、同じページに書いてあれば一緒に受け取るだけ。
+       表紙のために何度も取り寄せ直すことはしない） */
   const ways = [
     'https://r.jina.ai/' + target,
-    tabs, raw, get, tabs, raw, get
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent(target),
+    'https://api.allorigins.win/get?url=' + encodeURIComponent(target)
   ];
   let cover = null;
-  let eps = null;
   for (const u of ways){
     try{
-      let body = await fetchWithTimeout(u, 20000);
+      let body = await fetchWithTimeout(u, 25000);
       if (u.indexOf('/get?') >= 0){
         try{ body = JSON.parse(body).contents || ''; }catch(e){ /* JSONでなければそのまま */ }
       }
       if (!cover) cover = extractCover(body, target);
-      if (!eps){
-        const e = extractChapters(body, target);
-        if (e.length) eps = e;
-      }
-      /* 話数だけ先に取れても、表紙がまだなら次の取り寄せ方も試す
-         （取り寄せ方によって、表紙の書き方が違うため） */
-      if (eps && cover) break;
+      const eps = extractChapters(body, target);
+      if (eps.length) return { eps, cover };
     }catch(e){ /* 次の取り寄せ方を試す */ }
   }
-  return (eps || cover) ? { eps, cover } : null;
+  return cover ? { eps: null, cover } : null;
 }
 async function checkItem(it, force){
   if (checkingIds.has(it.id)) return;
   const now = Date.now();
   if (!force){
-    if (Array.isArray(it.chapters) && it.cover && it.checkedAt && now - it.checkedAt < CHECK_TTL) return;
+    if (Array.isArray(it.chapters) && it.checkedAt && now - it.checkedAt < CHECK_TTL) return;
     if (!Array.isArray(it.chapters) && it.lastTry && now - it.lastTry < RETRY_TTL) return; // 失敗直後は少し待つ
   }
   checkingIds.add(it.id);
@@ -992,9 +992,7 @@ let checkingAll = false;
 async function runChecks(){
   if (checkingAll || !/^https?:$/.test(location.protocol)) return;
   checkingAll = true;
-  // 表紙がまだ無い作品を先に確認する（後ろの方の作品が後回しにならないように）
-  const ordered = items.slice().sort((a, b) => (a.cover ? 1 : 0) - (b.cover ? 1 : 0));
-  for (const it of ordered){
+  for (const it of items.slice()){
     await checkItem(it, false);
     await new Promise(r => setTimeout(r, 350));
   }
