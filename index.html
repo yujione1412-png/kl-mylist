@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.3.6
+  KLマイリスト（klmanga.works 用の読書メモ） v1.3.7
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,12 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.3.7  表紙の取り寄せ先をさらに追加し、手動でも貼れるようにした
+          ・取り寄せ用の中継に codetabs を追加（allorigins とは別の経路）。
+            経路を変えながら最大7回まで試す
+          ・頭文字を押したとき、取れたかどうかをメッセージで知らせるようにした
+          ・編集画面に「表紙画像のURL」欄を追加。ここに貼った表紙は固定され、
+            自動の取り直しで上書きされない（自動でどうしても取れない作品用）
   v1.3.6  表紙が取れない問題への対策
           ・ジャンケットバンクで実例を確認：表紙は中継（jina）の変換では落ちており、
             もう一方の中継（allorigins）から取る必要があるが、その中継は一時的な
@@ -310,6 +316,10 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 
   <label class="f-label">メモ（任意）</label>
   <textarea class="f-in" id="fMemo" placeholder="例：アニメ化したらしい、など"></textarea>
+
+  <label class="f-label">表紙画像のURL（空でOK）</label>
+  <input class="f-in" id="fCover" type="url" placeholder="自動で取れないときだけ、表紙画像のURLを貼ってください">
+  <p class="hint">ふつうは自動で入ります。表紙がどうしても表示されない作品は、ここに貼ると固定されます（自動では上書きされません）。</p>
 
   <div class="sheet-actions">
     <button class="btn" id="cancelBtn">やめる</button>
@@ -641,7 +651,7 @@ function openAdd(){
   editingId = null;
   pendingLastUrl = '';
   $('sheetTitle').textContent = '作品を追加';
-  $('fUrl').value = ''; $('fTitle').value = ''; $('fEp').value = ''; $('fMemo').value = '';
+  $('fUrl').value = ''; $('fTitle').value = ''; $('fEp').value = ''; $('fMemo').value = ''; $('fCover').value = '';
   setSheetStatus('reading');
   $('delBtn').style.display = 'none';
   openSheet();
@@ -655,6 +665,7 @@ function openEdit(id){
   $('fTitle').value = it.title || '';
   $('fEp').value = it.episode ? fmtEp(it.episode) : '';
   $('fMemo').value = it.memo || '';
+  $('fCover').value = it.cover || '';
   setSheetStatus(it.status || 'reading');
   $('delBtn').style.display = '';
   openSheet();
@@ -664,6 +675,8 @@ function saveSheet(){
   const title = $('fTitle').value.trim();
   let ep = Math.max(0, Math.round((parseFloat($('fEp').value) || 0) * 10) / 10);
   const memo = $('fMemo').value.trim();
+  const coverInput = $('fCover').value.trim();
+  const coverManual = /^https?:\/\//i.test(coverInput) ? coverInput : '';
   if (!url || !/^https?:\/\//i.test(url)){ toast('作品ページのURLを入れてください'); return; }
   if (!title){ toast('作品名を入れてください'); return; }
 
@@ -683,7 +696,9 @@ function saveSheet(){
     if (!it) return;
     const urlChanged = it.url !== url;
     it.url = url; it.title = title; it.episode = ep; it.memo = memo; it.status = sheetStatus;
-    if (urlChanged){ it.cover = ''; delete it.chapters; it.checkedAt = 0; }
+    if (urlChanged){ it.cover = ''; it.coverManual = false; delete it.chapters; it.checkedAt = 0; }
+    if (coverManual){ it.cover = coverManual; it.coverManual = true; }
+    else if (coverInput === '' && it.coverManual){ it.coverManual = false; }
     noteEpisodeExists(it, ep);
     if (lastUrl) it.lastUrl = lastUrl;
     it.updatedAt = Date.now();
@@ -692,7 +707,8 @@ function saveSheet(){
     if (items.some(x => seriesUrlOf(x.url) === url)){ toast('その作品はすでに登録されています'); return; }
     items.push({
       id: uid(), title, url, episode: ep, status: sheetStatus,
-      fav: false, memo, lastUrl, createdAt: Date.now(), updatedAt: Date.now()
+      fav: false, memo, lastUrl, cover: coverManual, coverManual: !!coverManual,
+      createdAt: Date.now(), updatedAt: Date.now()
     });
     toast('登録しました');
   }
@@ -777,6 +793,7 @@ function openAddPrefill(seriesUrl, title, ep, chapterUrl){
   $('fTitle').value = title || '';
   $('fEp').value = ep ? fmtEp(ep) : '';
   $('fMemo').value = '';
+  $('fCover').value = '';
   setSheetStatus('reading');
   $('delBtn').style.display = 'none';
   openSheet();
@@ -917,13 +934,15 @@ function extractCover(body, target){
 async function fetchSeriesInfo(seriesUrl){
   let target = seriesUrlOf(seriesUrl);
   try{ target = new URL(target).href; }catch(e){ /* そのまま使う */ }
-  /* 中継サービス（allorigins）は一時的なエラー（520/522など）で失敗することが
-     あるため、表紙が取れるまでは同じ取り寄せ方をもう一度ずつ試す */
+  /* 中継サービスは一時的なエラー（520/522など）で失敗することがあるため、
+     表紙が取れるまでは、中継を変えながら繰り返し試す。
+     codetabs は allorigins とは別の中継（こちらもページの原文を返してくれる） */
   const raw = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(target);
   const get = 'https://api.allorigins.win/get?url=' + encodeURIComponent(target);
+  const tabs = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(target);
   const ways = [
     'https://r.jina.ai/' + target,
-    raw, get, raw, get
+    tabs, raw, get, tabs, raw, get
   ];
   let cover = null;
   let eps = null;
@@ -957,7 +976,7 @@ async function checkItem(it, force){
   render();
   const info = await fetchSeriesInfo(it.url);
   checkingIds.delete(it.id);
-  if (info && info.cover && info.cover !== it.cover) it.cover = info.cover;
+  if (info && info.cover && info.cover !== it.cover && !it.coverManual) it.cover = info.cover;
   const eps = info ? info.eps : null;
   if (eps){
     it.chapters = eps;
@@ -981,12 +1000,15 @@ async function runChecks(){
   }
   checkingAll = false;
 }
-// 表紙の場所を押したとき：その作品だけ取り寄せ直す
-function refreshInfo(id){
+// 表紙の場所を押したとき：その作品だけ取り寄せ直し、結果を知らせる
+async function refreshInfo(id){
   const it = items.find(x => x.id === id);
   if (!it) return;
+  if (checkingIds.has(it.id)){ toast('その作品は、いま確認中です'); return; }
   toast('表紙と新しい話を確認しています…');
-  checkItem(it, true);
+  await checkItem(it, true);
+  if (it.cover) toast('「' + it.title + '」の表紙が取れました');
+  else toast('表紙が取れませんでした。時間をおいてもう一度押すか、編集画面で表紙URLを貼ってください');
 }
 // 表紙画像が直接は読み込めなかったとき：画像用の中継を通してもう一度試す
 function coverImgErr(img){
