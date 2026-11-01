@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.2
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.3
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,15 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.3  新しい話をその場で確認し直せるように
+          ・自動の確認は12時間に1回だけ＋中継側に古い写しが残ることがあり、
+            新しい話が出ても表示に反映されないことがあった
+            （例：魔女と傭兵の78.2話が出ても「最新話まで読了」のまま）
+          ・並び順の右に「新しい話を確認し直す」ボタンを追加。
+            全作品をその場で確認し直し、終わると未読の件数を知らせる
+          ・表紙の画像を押しても、その作品だけ確認し直せるようにした
+            （結果は「新しい話があります：第○話」などと表示される）
+          ・確認し直すときは目印付きで取り寄せ、中継側の古い写しを避ける
   v1.4.2  「未読」の意味を変更
           ・「未読」を、まだ読み始めていない作品の区分ではなく
             「読んでいない話がある作品」の意味に変更し、話数から自動で判定する。
@@ -320,6 +329,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       <option value="title">作品名順</option>
       <option value="episode">読んだ話数が多い順</option>
     </select>
+    <button class="h-btn" id="recheckBtn" style="margin-left:auto;">新しい話を確認し直す</button>
   </div>
 </div>
 
@@ -637,7 +647,7 @@ function render(){
             : '<div class="next-info">新しい話があるか、まだ確認していません。</div>');
     }
     const coverHtml = (it.cover && /^https?:\/\//i.test(it.cover))
-      ? '<img src="' + esc(it.cover) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="coverImgErr(this)" style="width:54px; height:72px; object-fit:cover; border-radius:8px; flex:none; background:var(--card2);">'
+      ? '<img src="' + esc(it.cover) + '" alt="" title="押すと新しい話を確認し直します" onclick="refreshInfo(\'' + it.id + '\')" loading="lazy" referrerpolicy="no-referrer" onerror="coverImgErr(this)" style="width:54px; height:72px; object-fit:cover; border-radius:8px; flex:none; background:var(--card2); cursor:pointer;">'
       : '<button onclick="refreshInfo(\'' + it.id + '\')" aria-label="表紙を取り直す" style="width:54px; height:72px; border-radius:8px; flex:none; background:var(--card2); color:var(--sub); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:700; padding:0;">' + esc((it.title || '？').slice(0, 1)) + '</button>';
     return '<div class="card">' +
       '<div style="display:flex; gap:11px; align-items:flex-start;">' +
@@ -692,7 +702,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -996,9 +1006,11 @@ function extractCover(body, target){
   if (md && coverUrlOk(md[1])) return md[1];
   return null;
 }
-async function fetchSeriesInfo(seriesUrl){
+async function fetchSeriesInfo(seriesUrl, bust){
   let target = seriesUrlOf(seriesUrl);
   try{ target = new URL(target).href; }catch(e){ /* そのまま使う */ }
+  // 確認し直すときは目印を付けて取り寄せる。中継側に残っている古い写しではなく、今のページが返るようにするため
+  if (bust) target += (target.includes('?') ? '&' : '?') + 'klcheck=' + Date.now();
   /* 取り寄せ方は当初の3通り。話数が取れたら、その時点で終わりにする
      （表紙は、同じページに書いてあれば一緒に受け取るだけ。
        表紙のために何度も取り寄せ直すことはしない） */
@@ -1022,16 +1034,16 @@ async function fetchSeriesInfo(seriesUrl){
   return cover ? { eps: null, cover } : null;
 }
 async function checkItem(it, force){
-  if (checkingIds.has(it.id)) return;
+  if (checkingIds.has(it.id)) return false;
   const now = Date.now();
   if (!force){
-    if (Array.isArray(it.chapters) && it.checkedAt && now - it.checkedAt < CHECK_TTL) return;
-    if (!Array.isArray(it.chapters) && it.lastTry && now - it.lastTry < RETRY_TTL) return; // 失敗直後は少し待つ
+    if (Array.isArray(it.chapters) && it.checkedAt && now - it.checkedAt < CHECK_TTL) return false;
+    if (!Array.isArray(it.chapters) && it.lastTry && now - it.lastTry < RETRY_TTL) return false; // 失敗直後は少し待つ
   }
   checkingIds.add(it.id);
   failedIds.delete(it.id);
   render();
-  const info = await fetchSeriesInfo(it.url);
+  const info = await fetchSeriesInfo(it.url, !!force);
   checkingIds.delete(it.id);
   if (info && info.cover && info.cover !== it.cover && !it.coverManual) it.cover = info.cover;
   const eps = info ? info.eps : null;
@@ -1044,6 +1056,7 @@ async function checkItem(it, force){
     if (!Array.isArray(it.chapters)) failedIds.add(it.id);
   }
   save(); render();
+  return !!info; // ページを取り寄せられたかどうかを返す
 }
 let checkingAll = false;
 async function runChecks(){
@@ -1056,14 +1069,31 @@ async function runChecks(){
   checkingAll = false;
 }
 // 表紙の場所を押したとき：その作品だけ取り寄せ直し、結果を知らせる
+/* 表紙の場所を押したとき：その作品だけ、その場で確認し直して結果を知らせる */
 async function refreshInfo(id){
   const it = items.find(x => x.id === id);
   if (!it) return;
   if (checkingIds.has(it.id)){ toast('その作品は、いま確認中です'); return; }
-  toast('表紙と新しい話を確認しています…');
-  await checkItem(it, true);
-  if (it.cover) toast('「' + it.title + '」の表紙が取れました');
-  else toast('表紙が取れませんでした。時間をおいてもう一度押すか、編集画面で表紙URLを貼ってください');
+  toast('「' + it.title + '」の新しい話を確認しています…');
+  const ok = await checkItem(it, true);
+  if (!ok){ toast('確認できませんでした。時間をおいて、もう一度試してください'); return; }
+  const next = nextChapterOf(it);
+  if (next !== null) toast('「' + it.title + '」に新しい話があります：第' + fmtEp(next) + '話');
+  else toast('「' + it.title + '」は最新話まで読了です');
+}
+
+/* 全作品をその場で確認し直す（自動の確認は12時間に1回だけなので、手動の入口を用意した） */
+let recheckingAll = false;
+async function recheckAll(){
+  if (recheckingAll) return;
+  if (!items.length){ toast('作品がまだ登録されていません'); return; }
+  recheckingAll = true;
+  toast('全作品の新しい話を確認し直しています…');
+  for (const it of items.slice()) await checkItem(it, true);
+  recheckingAll = false;
+  render();
+  const u = items.filter(x => hasUnread(x)).length;
+  toast('確認が終わりました。未読は ' + u + ' 作品です');
 }
 // 表紙画像が直接は読み込めなかったとき：画像用の中継を通してもう一度試す
 function coverImgErr(img){
@@ -1145,6 +1175,7 @@ document.querySelectorAll('#filterChips .chip').forEach(ch =>
   }));
 $('searchBox').addEventListener('input', () => { query = $('searchBox').value.trim(); render(); });
 $('sortSel').addEventListener('change', render);
+$('recheckBtn').addEventListener('click', recheckAll);
 $('backupBtn').addEventListener('click', () => {
   const ok = /^https?:$/.test(location.protocol);
   $('bmCode').value = ok ? bookmarkletCode() : '（公開されたページで開くと、ここにコードが出ます）';
