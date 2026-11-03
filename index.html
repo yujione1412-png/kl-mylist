@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.6
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.7
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,13 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.7  「記録しました」画面が勝手に閉じないように
+          ・v1.4.6で入れた「自動で閉じる試み」が、実機ではアプリだけを
+            閉じてしまい、サイトに戻れなかったため取りやめた。
+            画面はユーザーが操作するまで残り続ける
+          ・「サイトに戻る」ボタンからも「閉じる」動作を外し、「戻る」だけにした。
+            戻らない場合は、スマホの戻るボタンを使う案内に切り替わる
+          ・「アプリの一覧を見る」ボタンも追加した
   v1.4.6  共有のあと、サイトの続きに戻れるように方式を変更
           ・v1.4.5の「プログラムから戻る」方式は実機で効かず、予備の
             「作品ページを開き直す」になってサイト側の履歴が消えてしまった
@@ -449,7 +456,8 @@ textarea.f-in{ min-height:64px; resize:vertical; }
     <div id="returnMsg" style="color:var(--sub); font-size:14px; line-height:1.7; margin-bottom:22px;"></div>
     <button class="h-btn" id="returnBackBtn" style="width:100%; padding:14px; font-size:16px; margin-bottom:10px;">サイトに戻る</button>
     <button class="h-btn" id="returnOpenBtn" style="width:100%; padding:12px; font-size:14px; margin-bottom:16px;">作品ページを開く</button>
-    <div style="color:var(--sub); font-size:12.5px; line-height:1.7;">「サイトに戻る」で戻らない場合は、スマホの戻るボタンを押してください。サイトで探していたページの続きから再開できます。</div>
+    <div id="returnNote" style="color:var(--sub); font-size:12.5px; line-height:1.7;">スマホの戻るボタン（下部の戻るキーや、画面の端からのスワイプ）を押すと、サイトで読んでいた・探していたページの続きに戻れます。</div>
+    <button id="returnListBtn" style="background:none; border:none; color:var(--sub); font-size:13px; margin-top:14px; text-decoration:underline; cursor:pointer;">アプリの一覧を見る</button>
   </div>
 </div>
 
@@ -783,7 +791,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.4.7';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -991,12 +999,17 @@ function showReturnOverlay(msg, backUrl){
   returnBackUrl = backUrl || '';
   $('returnMsg').textContent = msg;
   $('returnOverlay').style.display = 'flex';
-  // 少し置いてから、閉じられる場合は自動で閉じることも試す（効かなければ画面が残る）
-  setTimeout(() => { if (returnBackUrl){ try{ window.close(); }catch(e){ /* 何もしない */ } } }, 2000);
+  // v1.4.6では自動で閉じる試みを入れたが、実機ではアプリだけが閉じて
+  // サイトに戻れなかったため、自動で閉じることはしない。画面は残り続ける
 }
 function closeToSite(){
-  try{ window.close(); }catch(e){ /* 何もしない */ }
-  setTimeout(() => { try{ history.back(); }catch(e){ /* 何もしない */ } }, 150);
+  // 「戻る」だけを試す（window.close はアプリだけ閉じてしまうことがあったため使わない）
+  try{ history.back(); }catch(e){ /* 何もしない */ }
+  setTimeout(() => {
+    if ($('returnOverlay').style.display !== 'none'){
+      $('returnNote').textContent = 'まだこの画面の場合は、スマホの戻るボタン（下部の戻るキーや、画面の端からのスワイプ）を押してください。それでも元のページに戻らない場合は、共有を選んだ時点で元のサイト画面が閉じられているため、アプリからは戻せません。その場合は「作品ページを開く」から作品を読み続けてください。';
+    }
+  }, 800);
 }
 function applyShare(){
   let cand = '';
@@ -1312,6 +1325,10 @@ $('returnOpenBtn').addEventListener('click', () => {
   const u = returnBackUrl; returnBackUrl = '';
   $('returnOverlay').style.display = 'none';
   if (u) openExternal(u);
+});
+$('returnListBtn').addEventListener('click', () => {
+  returnBackUrl = '';
+  $('returnOverlay').style.display = 'none';
 });
 $('backupBtn').addEventListener('click', () => {
   const ok = /^https?:$/.test(location.protocol);
