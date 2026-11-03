@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.5
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.6
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,14 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.6  共有のあと、サイトの続きに戻れるように方式を変更
+          ・v1.4.5の「プログラムから戻る」方式は実機で効かず、予備の
+            「作品ページを開き直す」になってサイト側の履歴が消えてしまった
+          ・共有で開かれたときは「戻る」を受け止める仕組み自体を付けないようにし、
+            記録後に「記録しました」画面を出す方式に変更。
+            「サイトに戻る」ボタンか、スマホの戻る操作で、共有元の画面
+            （サイトで読んでいた・探していたページの続き）に帰れる
+          ・作品ページを新しく開きたい場合のために「作品ページを開く」ボタンも置いた
   v1.4.5  二重登録の防止、サイトの続きに戻れる戻り方、並び順の変更
           ・同じ作品が別作品として登録されてしまう問題への対策：
             作品の照合をURLそのままではなく作品ページの名前（スラッグ）で行い、
@@ -409,7 +417,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。<br>
       ※このアプリのボタン（サイトを開く／作品ページ／次の話を読む）から開くときは、自動でChromeで開きます。アプリの中の画面で開くとアドレスバーが無く、上記の記録ができないためです。<br>
       ※もしアプリの中の画面で開いてしまった場合は、その画面の右上にある︙メニューから「Chromeで開く」を選んでください。<br>
-      ※アプリの中の画面のままでも記録できます。読み終わったら、その画面の右上の︙メニュー →「共有」（または「ページを共有」）→ 共有先で「KLマイリスト」を選んでください。このアプリが開いて、その話まで読んだことに記録されます。記録できると、少ししてから作品の画面に自動で戻るので、そのまま読み続けられます。新しい作品のときは、登録画面で保存すると戻ります。（この方法を使うには、ホーム画面のアプリを一度消してから入れ直しが必要です。共有先への登録は、入れ直したときにされます）
+      ※アプリの中の画面のままでも記録できます。読み終わったら、その画面の右上の︙メニュー →「共有」（または「ページを共有」）→ 共有先で「KLマイリスト」を選んでください。このアプリが開いて、その話まで読んだことに記録されます。記録できると「記録しました」の画面が出ます。「サイトに戻る」を押すか、スマホの戻るボタンを押すと、サイトで読んでいた・探していたページの続きに戻れます。新しい作品のときは、登録画面で保存すると、この画面が出ます。（この方法を使うには、ホーム画面のアプリを一度消してから入れ直しが必要です。共有先への登録は、入れ直したときにされます）
     </p>
     <textarea id="bmCode" readonly style="width:100%; height:62px; background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; font-size:11px; color:var(--sub);"></textarea>
     <p id="bmWarn" style="display:none; font-size:12.5px; color:#FF9D9D; line-height:1.7; margin:8px 0 0;">
@@ -432,6 +440,18 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 </div>
 
 <div id="toast"></div>
+
+<!-- 共有から記録したあとに、サイトへ戻るための画面 -->
+<div id="returnOverlay" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(10,12,16,.97); padding:24px; align-items:center; justify-content:center;">
+  <div style="max-width:340px; width:100%; text-align:center;">
+    <div style="font-size:42px; margin-bottom:10px;">✅</div>
+    <div style="font-size:19px; font-weight:700; margin-bottom:8px;">記録しました</div>
+    <div id="returnMsg" style="color:var(--sub); font-size:14px; line-height:1.7; margin-bottom:22px;"></div>
+    <button class="h-btn" id="returnBackBtn" style="width:100%; padding:14px; font-size:16px; margin-bottom:10px;">サイトに戻る</button>
+    <button class="h-btn" id="returnOpenBtn" style="width:100%; padding:12px; font-size:14px; margin-bottom:16px;">作品ページを開く</button>
+    <div style="color:var(--sub); font-size:12.5px; line-height:1.7;">「サイトに戻る」で戻らない場合は、スマホの戻るボタンを押してください。サイトで探していたページの続きから再開できます。</div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -763,7 +783,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -855,7 +875,7 @@ function saveSheet(){
   const savedItem = items.find(x => seriesUrlOf(x.url) === url);
   if (savedItem) checkItem(savedItem, false);
   // 共有から来た新しい作品の場合は、保存できたら読んでいた話の画面に戻る
-  if (backAfterSave) setTimeout(() => leaveToSharedPage(backAfterSave), 900);
+  if (backAfterSave) setTimeout(() => showReturnOverlay('「' + title + '」を登録しました', backAfterSave), 700);
 }
 function deleteItem(){
   if (!editingId) return;
@@ -945,7 +965,13 @@ function applyReg(){
     let url = '';
     try{ url = decodeURIComponent(location.hash.slice(5)); }catch(e){ return; }
     history.replaceState(null, '', location.pathname + location.search);
-    applyRegUrl(url);
+    const r = applyRegUrl(url);
+    if (r === 'recorded' || r === 'already'){
+      setTimeout(() => {
+        const t = findItemBySeries(url);
+        showReturnOverlay(t ? ('「' + t.title + '」を第' + fmtEp(t.episode) + '話まで読んだことにしました') : '記録しました', url);
+      }, 900);
+    }
     return;
   }
   applyShare();
@@ -955,22 +981,22 @@ function applyReg(){
    それを受け取って同じように記録する（manifest.json の share_target が必要） */
 /* 共有で来た元のページ。記録が終わったら、ここに戻る */
 let shareBackUrl = '';
-/* 共有元の画面に戻る途中かどうか（この間は「戻る」を受け止める仕組みを止める） */
-let shareLeaving = false;
-/* 共有元の画面（サイト側）に、そのまま戻る。
-   新しいページを開き直すとサイト側のページの履歴（何ページも進めて探していた途中）が
-   消えてしまうので、開き直さずに「戻る」操作で共有元の画面へ帰る。
-   戻れずにアプリが残ったときの予備として、数秒後にまだ画面が見えていたら
-   これまで通り作品ページを開く */
-function leaveToSharedPage(fallbackUrl){
-  if (shareLeaving) return;
-  shareLeaving = true;
-  try{ history.back(); }catch(e){ /* 何もしない */ }
-  setTimeout(() => { try{ history.back(); }catch(e){ /* 何もしない */ } }, 300);
-  setTimeout(() => {
-    shareLeaving = false;
-    if (!document.hidden && fallbackUrl) openExternal(fallbackUrl);
-  }, 3000);
+/* 共有から記録したあとに出す「サイトに戻る」画面。
+   v1.4.5ではプログラムから「戻る」を実行して共有元へ帰ろうとしたが、実機では効かず、
+   予備の「作品ページを開き直す」に進んでしまった（開き直すとサイト側の履歴が消える）。
+   共有で開かれた画面は、スマホの戻る操作で共有元の画面に帰れるのが本来の動きなので、
+   この画面では戻る操作を受け止めず、ボタンかスマホの戻るで帰れるようにする */
+let returnBackUrl = '';
+function showReturnOverlay(msg, backUrl){
+  returnBackUrl = backUrl || '';
+  $('returnMsg').textContent = msg;
+  $('returnOverlay').style.display = 'flex';
+  // 少し置いてから、閉じられる場合は自動で閉じることも試す（効かなければ画面が残る）
+  setTimeout(() => { if (returnBackUrl){ try{ window.close(); }catch(e){ /* 何もしない */ } } }, 2000);
+}
+function closeToSite(){
+  try{ window.close(); }catch(e){ /* 何もしない */ }
+  setTimeout(() => { try{ history.back(); }catch(e){ /* 何もしない */ } }, 150);
 }
 function applyShare(){
   let cand = '';
@@ -991,7 +1017,10 @@ function applyShare(){
     // 「記録しました」の表示を先に見せるため、少し待ってから戻る
     setTimeout(() => {
       const u = shareBackUrl; shareBackUrl = '';
-      if (u) leaveToSharedPage(u);
+      if (u){
+        const t = findItemBySeries(u);
+        showReturnOverlay(t ? ('「' + t.title + '」を第' + fmtEp(t.episode) + '話まで読んだことにしました') : '記録しました', u);
+      }
     }, 1500);
   }else if (r !== 'new'){
     shareBackUrl = '';
@@ -1278,6 +1307,12 @@ document.querySelectorAll('#filterChips .chip').forEach(ch =>
 $('searchBox').addEventListener('input', () => { query = $('searchBox').value.trim(); render(); });
 $('sortSel').addEventListener('change', render);
 $('recheckBtn').addEventListener('click', recheckAll);
+$('returnBackBtn').addEventListener('click', closeToSite);
+$('returnOpenBtn').addEventListener('click', () => {
+  const u = returnBackUrl; returnBackUrl = '';
+  $('returnOverlay').style.display = 'none';
+  if (u) openExternal(u);
+});
 $('backupBtn').addEventListener('click', () => {
   const ok = /^https?:$/.test(location.protocol);
   $('bmCode').value = ok ? bookmarkletCode() : '（公開されたページで開くと、ここにコードが出ます）';
@@ -1309,9 +1344,13 @@ $('bkSheet').addEventListener('click', e => { if (e.target === $('bkSheet')) $('
    履歴に目印を1つ置き、戻る操作が来たら「開いている画面を閉じる」に使い、
    何も開いていなければ目印を置き直してアプリに留まるようにする。
    ════════════════════════════════════════ */
-history.pushState({ klGuard: 1 }, '');
+/* 共有（と専用ブックマーク）で開かれたかどうか。
+   この場合は戻る操作を受け止める仕組みを付けない。付けると、スマホの戻るで
+   共有元の画面（サイトで読んでいた・探していたページ）に帰れなくなってしまうため */
+const launchedByShare = /[?&](url|text|title)=/.test(location.search) || location.hash.indexOf('#reg=') === 0;
+if (!launchedByShare) history.pushState({ klGuard: 1 }, '');
 window.addEventListener('popstate', () => {
-  if (shareLeaving) return; // 共有元の画面に戻る途中は、戻る操作を受け止めない
+  if (launchedByShare) return; // 共有で開かれたときは、戻る操作を受け止めない（スマホの戻るでサイトへ帰れるように）
   if ($('bkSheet').style.display !== 'none') $('bkSheet').style.display = 'none';
   if ($('sheet').classList.contains('show')) closeSheet();
   history.pushState({ klGuard: 1 }, '');
