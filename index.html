@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.9
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.11
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,20 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.11 共有の記録後に出していた「記録しました」画面を廃止
+          ・アプリ内のボタンでChromeへ戻ることは、仕組み上できない
+            （別のアプリへ切り替える操作は、Webアプリからは行えない）
+          ・そのため、記録後の「サイトに戻る」「作品ページを開く」等の
+            ボタンの画面は出さないことにした。記録すると一覧が表示されるだけ
+          ・Chromeのタブから共有した場合は、共有で開かれたときは
+            「戻る」を受け止めない作りのままなので、スマホの「戻る」を
+            押せばChromeのタブに戻れる（タブと履歴は残る）
+  v1.4.10 本物のタブへ移す手順の案内を追加
+          ・v1.4.9の「Chrome本体を直接指定」は、実機では本物のタブに
+            ならなかったため取りやめ、開き方は元に戻した
+          ・「サイトを開く」を押したときに、最初の一度だけ
+            「︙→『Chromeで開く』で本物のタブに移すと、探す続きが残せる」
+            という案内を出すようにした
   v1.4.9  サイトをChromeの本物のタブで開く試み
           ・履歴が消える原因は、サイトがアプリ内表示（簡易タブ）で開かれ、
             共有のときにその画面ごと閉じてしまうことだった
@@ -351,7 +365,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 <header>
   <div class="h-row">
     <h1><span class="logo">KL</span>マイリスト</h1>
-    <button class="h-btn" onclick="openExternal('https://klmanga.works/')">サイトを開く</button>
+    <button class="h-btn" onclick="openSiteTop()">サイトを開く</button>
     <button class="h-btn" id="backupBtn">設定</button>
   </div>
   <div id="summary"></div>
@@ -439,7 +453,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
       ※貼り付けたときに先頭の「javascript:」が消えてしまったら、その部分だけ手で入力してください。<br>
       ※このアプリのボタン（サイトを開く／作品ページ／次の話を読む）から開くときは、自動でChromeで開きます。アプリの中の画面で開くとアドレスバーが無く、上記の記録ができないためです。<br>
       ※もしアプリの中の画面で開いてしまった場合は、その画面の右上にある︙メニューから「Chromeで開く」を選んでください。<br>
-      ※アプリの中の画面のままでも記録できます。読み終わったら、その画面の右上の︙メニュー →「共有」（または「ページを共有」）→ 共有先で「KLマイリスト」を選んでください。このアプリが開いて、その話まで読んだことに記録されます。記録できると「記録しました」の画面が出ます。なお、この端末では共有を選ぶと元のサイト画面が閉じてしまうため、探していたページの続きには戻れません。作品は、その画面の「作品ページを開く」から読み続けられます。探す続きを残したい場合は、Chromeアプリで直接サイトを開いて探してください（共有で記録してもChromeのタブは残ります）。新しい作品のときは、登録画面で保存すると、この画面が出ます。（この方法を使うには、ホーム画面のアプリを一度消してから入れ直しが必要です。共有先への登録は、入れ直したときにされます）
+      ※アプリの中の画面のままでも記録できます。読み終わったら、その画面の右上の︙メニュー →「共有」（または「ページを共有」）→ 共有先で「KLマイリスト」を選んでください。このアプリが開いて、その話まで読んだことに記録され、一覧が表示されます。Chromeのタブで読んでいた場合は、記録のあとスマホの「戻る」を押すと、Chromeのタブに戻れます（タブと履歴は残ります）。アプリの中の画面（アプリ内表示）で読んでいた場合は、共有を選ぶとその画面が閉じてしまうため、元のページには戻れません。探す続きを残したい場合は、Chromeアプリで直接サイトを開いて探すか、開いた画面の右上「︙」→「Chromeで開く」で本物のタブに移してから探してください。新しい作品のときは、登録画面が出るので保存してください。（この方法を使うには、ホーム画面のアプリを一度消してから入れ直しが必要です。共有先への登録は、入れ直したときにされます）
     </p>
     <textarea id="bmCode" readonly style="width:100%; height:62px; background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; font-size:11px; color:var(--sub);"></textarea>
     <p id="bmWarn" style="display:none; font-size:12.5px; color:#FF9D9D; line-height:1.7; margin:8px 0 0;">
@@ -462,18 +476,6 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 </div>
 
 <div id="toast"></div>
-
-<!-- 共有から記録したあとに、サイトへ戻るための画面 -->
-<div id="returnOverlay" style="display:none; position:fixed; inset:0; z-index:200; background:rgba(10,12,16,.97); padding:24px; align-items:center; justify-content:center;">
-  <div style="max-width:340px; width:100%; text-align:center;">
-    <div style="font-size:42px; margin-bottom:10px;">✅</div>
-    <div style="font-size:19px; font-weight:700; margin-bottom:8px;">記録しました</div>
-    <div id="returnMsg" style="color:var(--sub); font-size:14px; line-height:1.7; margin-bottom:22px;"></div>
-    <button class="h-btn" id="returnOpenBtn" style="width:100%; padding:14px; font-size:16px; margin-bottom:16px;">作品ページを開く</button>
-    <div id="returnNote" style="color:var(--sub); font-size:12.5px; line-height:1.8; text-align:left;">この端末では、共有を選ぶと元のサイト画面（アプリ内表示）が閉じてしまうため、探していたページの続きには戻れません。作品は上のボタンから読み続けられます。<br>探す続きを残したい場合は、Chromeアプリで直接サイトを開いて探してください。共有で記録しても、Chromeのタブは履歴ごと残ります。</div>
-    <button id="returnListBtn" style="background:none; border:none; color:var(--sub); font-size:13px; margin-top:14px; text-decoration:underline; cursor:pointer;">アプリの一覧を見る</button>
-  </div>
-</div>
 
 <script>
 'use strict';
@@ -805,7 +807,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.9';
+const APP_VERSION = '1.4.11';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -823,7 +825,6 @@ function closeSheet(){
   $('sheetBack').classList.remove('show');
   $('sheet').classList.remove('show');
   editingId = null;
-  shareBackUrl = ''; // 登録画面を閉じたら、作品に戻る予定は取り消す（保存時は saveSheet が先に控える）
 }
 function openAdd(){
   editingId = null;
@@ -890,14 +891,10 @@ function saveSheet(){
     });
     toast('登録しました');
   }
-  // 共有から来た新しい作品かどうかを、画面を閉じる前に控える
-  const backAfterSave = (shareBackUrl && !editingId) ? shareBackUrl : '';
   save(); render(); closeSheet();
   // 保存した作品の話数と表紙を取り寄せ直す（裏で実行され、終わると一覧が更新される）
   const savedItem = items.find(x => seriesUrlOf(x.url) === url);
   if (savedItem) checkItem(savedItem, false);
-  // 共有から来た新しい作品の場合は、保存できたら読んでいた話の画面に戻る
-  if (backAfterSave) setTimeout(() => showReturnOverlay('「' + title + '」を登録しました', backAfterSave), 700);
 }
 function deleteItem(){
   if (!editingId) return;
@@ -987,13 +984,7 @@ function applyReg(){
     let url = '';
     try{ url = decodeURIComponent(location.hash.slice(5)); }catch(e){ return; }
     history.replaceState(null, '', location.pathname + location.search);
-    const r = applyRegUrl(url);
-    if (r === 'recorded' || r === 'already'){
-      setTimeout(() => {
-        const t = findItemBySeries(url);
-        showReturnOverlay(t ? ('「' + t.title + '」を第' + fmtEp(t.episode) + '話まで読んだことにしました') : '記録しました', url);
-      }, 900);
-    }
+    applyRegUrl(url);
     return;
   }
   applyShare();
@@ -1001,22 +992,6 @@ function applyReg(){
 /* アプリ内の画面（Chromeに移れなかったときの表示）で読み終わったとき用。
    その画面の「共有」からこのアプリが選ばれると、話のURL付きで開かれるので、
    それを受け取って同じように記録する（manifest.json の share_target が必要） */
-/* 共有で来た元のページ。記録が終わったら、ここに戻る */
-let shareBackUrl = '';
-/* 共有から記録したあとに出す「記録しました」画面。
-   共有元のサイト画面に戻す方法を v1.4.4〜v1.4.7 でいくつか試したが、実機では
-   どれも戻れなかった（開き直し／プログラムからの戻る／閉じる／スマホの戻る）。
-   この端末では、共有を選ぶと元のサイト画面（アプリ内表示）自体が閉じてしまうため、
-   アプリ側からは元のページに戻せない、という結論になった。
-   そのため、この画面では実際に使える選択肢（作品ページを開く／一覧を見る）だけを出す */
-let returnBackUrl = '';
-function showReturnOverlay(msg, backUrl){
-  returnBackUrl = backUrl || '';
-  $('returnMsg').textContent = msg;
-  $('returnOverlay').style.display = 'flex';
-  // v1.4.6では自動で閉じる試みを入れたが、実機ではアプリだけが閉じて
-  // サイトに戻れなかったため、自動で閉じることはしない。画面は残り続ける
-}
 function applyShare(){
   let cand = '';
   try{
@@ -1029,23 +1004,7 @@ function applyShare(){
   }catch(e){ return; }
   if (!cand) return;
   history.replaceState(null, '', location.pathname);
-  shareBackUrl = cand;
-  const r = applyRegUrl(cand);
-  if (r === 'recorded' || r === 'already'){
-    // 記録できたら、読んでいた作品の画面に自動で戻る。
-    // 「記録しました」の表示を先に見せるため、少し待ってから戻る
-    setTimeout(() => {
-      const u = shareBackUrl; shareBackUrl = '';
-      if (u){
-        const t = findItemBySeries(u);
-        showReturnOverlay(t ? ('「' + t.title + '」を第' + fmtEp(t.episode) + '話まで読んだことにしました') : '記録しました', u);
-      }
-    }, 1500);
-  }else if (r !== 'new'){
-    shareBackUrl = '';
-  }
-  // 'new'（新しい作品）のときは、このまま登録画面を出す。
-  // 保存が押されたら、saveSheet のほうで作品の画面に戻る
+  applyRegUrl(cand); // 記録して終わり。登録後の「サイトに戻る」等の画面は出さない
 }
 /* 記録の結果を返す：'recorded'＝話数を記録した／'already'＝登録済みだった／'new'＝新しい作品（登録画面を開いた） */
 function applyRegUrl(url){
@@ -1261,6 +1220,15 @@ function coverImgErr(img){
    アプリ内画面で開いてしまい、「KLに記録」のブックマークが使えない。
    Androidでは Chrome アプリを指定して開くことで、アドレスバーのあるタブにする。
    ════════════════════════════════════════ */
+/* 「サイトを開く」：最初の一度だけ、本物のタブへ移す手順を案内する */
+function openSiteTop(){
+  if (!localStorage.getItem('kl_tip_chrome_tab')){
+    const ok = confirm('サイトを開きます。\n\n作品を探す続きを残したいときは、開いた画面の右上「︙」→「Chromeで開く」を押して、本物のタブに移してから探してください。\n（共有で記録しても、そのタブと履歴は残ります）');
+    try{ localStorage.setItem('kl_tip_chrome_tab', '1'); }catch(e){ /* 何もしない */ }
+    if (!ok) return;
+  }
+  openExternal('https://klmanga.works/');
+}
 function intentUrlFor(url){
   const u = new URL(url);
   return 'intent://' + u.host + u.pathname + u.search +
@@ -1268,9 +1236,6 @@ function intentUrlFor(url){
     ';action=android.intent.action.VIEW' +
     ';category=android.intent.category.BROWSABLE' +
     ';package=com.android.chrome' +
-    // Chrome本体の画面を直接指定する。アプリ内表示（簡易タブ）ではなく
-    // Chromeの本物のタブで開くため（タブなら、共有で記録しても履歴が残る）
-    ';component=com.android.chrome/com.google.android.apps.chrome.Main' +
     ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
 }
 function openExternal(url){
@@ -1329,15 +1294,6 @@ document.querySelectorAll('#filterChips .chip').forEach(ch =>
 $('searchBox').addEventListener('input', () => { query = $('searchBox').value.trim(); render(); });
 $('sortSel').addEventListener('change', render);
 $('recheckBtn').addEventListener('click', recheckAll);
-$('returnOpenBtn').addEventListener('click', () => {
-  const u = returnBackUrl; returnBackUrl = '';
-  $('returnOverlay').style.display = 'none';
-  if (u) openExternal(u);
-});
-$('returnListBtn').addEventListener('click', () => {
-  returnBackUrl = '';
-  $('returnOverlay').style.display = 'none';
-});
 $('backupBtn').addEventListener('click', () => {
   const ok = /^https?:$/.test(location.protocol);
   $('bmCode').value = ok ? bookmarkletCode() : '（公開されたページで開くと、ここにコードが出ます）';
