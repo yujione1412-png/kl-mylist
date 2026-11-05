@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.11
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.12
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,12 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.12 確認の進み具合の表示と、確認の順番の変更
+          ・まとめて確認している間、一覧の上に「新しい話を確認中… ○/○作品」
+            と進み具合を表示するようにした。自動確認では、確認が必要な
+            作品だけを数える
+          ・確認の順番を「前回確認した日時が古い順」に変更した
+            （まだ確認できていない作品を先に確認する）
   v1.4.11 共有の記録後に出していた「記録しました」画面を廃止
           ・アプリ内のボタンでChromeへ戻ることは、仕組み上できない
             （別のアプリへ切り替える操作は、Webアプリからは行えない）
@@ -720,7 +726,8 @@ function render(){
   const newCount = items.filter(it => (Number(it.episode) || 0) > 0 && nextChapterOf(it) !== null).length;
   $('summary').textContent = '登録 ' + items.length + ' 作品 ／ 未読 ' + unreadCount + ' 作品' +
     (newCount ? ' ／ 新しい話あり ' + newCount + ' 作品' : '') +
-    (checkingIds.size ? '（新しい話を確認中…）' : '');
+    (checkProgress ? '（新しい話を確認中… ' + checkProgress.done + '/' + checkProgress.total + '作品）'
+      : (checkingIds.size ? '（新しい話を確認中…）' : ''));
 
   if (!items.length){
     $('list').innerHTML = '<div class="empty">まだ作品が登録されていません。<br>右下の「＋ 作品を追加」から、<br>気に入った作品を登録してみてください。</div>';
@@ -807,7 +814,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.11';
+const APP_VERSION = '1.4.12';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -1167,15 +1174,43 @@ async function checkItem(it, force){
   save(); render();
   return !!info; // ページを取り寄せられたかどうかを返す
 }
-let checkingAll = false;
-async function runChecks(){
-  if (checkingAll || !/^https?:$/.test(location.protocol)) return;
-  checkingAll = true;
-  for (const it of items.slice()){
-    await checkItem(it, false);
-    await new Promise(r => setTimeout(r, 350));
+/* まとめて確認するときの進み具合と、確認の順番。
+   順番は「前回確認した日時が古い順」（まだ確認できていない作品を先にする）。
+   進み具合は checkProgress に入れ、一覧の上の表示に出す */
+let checkProgress = null; // { done:終わった数, total:全部の数 }
+let checkBatchRunning = false;
+function checkKey(it){
+  return it.checkedAt || it.lastTry || 0;
+}
+function sortByCheckAge(list){
+  return list.slice().sort((a, b) => (checkKey(a) - checkKey(b)) || ((a.createdAt || 0) - (b.createdAt || 0)));
+}
+async function runCheckBatch(list, force, gapMs){
+  if (checkBatchRunning) return;
+  const queue = sortByCheckAge(list);
+  if (!queue.length) return;
+  checkBatchRunning = true;
+  checkProgress = { done: 0, total: queue.length };
+  render();
+  for (const it of queue){
+    await checkItem(it, force);
+    checkProgress.done++;
+    render();
+    if (gapMs) await new Promise(r => setTimeout(r, gapMs));
   }
-  checkingAll = false;
+  checkProgress = null;
+  checkBatchRunning = false;
+  render();
+}
+async function runChecks(){
+  if (checkBatchRunning || !/^https?:$/.test(location.protocol)) return;
+  const now = Date.now();
+  // 確認が必要な作品だけを数えて進み具合に出す（確認済みの作品は数に入れない）
+  const due = items.filter(it => {
+    if (Array.isArray(it.chapters)) return !(it.checkedAt && now - it.checkedAt < CHECK_TTL);
+    return !(it.lastTry && now - it.lastTry < RETRY_TTL);
+  });
+  await runCheckBatch(due, false, 350);
 }
 // 表紙の場所を押したとき：その作品だけ取り寄せ直し、結果を知らせる
 /* 表紙の場所を押したとき：その作品だけ、その場で確認し直して結果を知らせる */
@@ -1192,15 +1227,11 @@ async function refreshInfo(id){
 }
 
 /* 全作品をその場で確認し直す（自動の確認は12時間に1回だけなので、手動の入口を用意した） */
-let recheckingAll = false;
 async function recheckAll(){
-  if (recheckingAll) return;
+  if (checkBatchRunning) return;
   if (!items.length){ toast('作品がまだ登録されていません'); return; }
-  recheckingAll = true;
   toast('全作品の新しい話を確認し直しています…');
-  for (const it of items.slice()) await checkItem(it, true);
-  recheckingAll = false;
-  render();
+  await runCheckBatch(items.slice(), true, 0);
   const u = items.filter(x => hasUnread(x)).length;
   toast('確認が終わりました。未読は ' + u + ' 作品です');
 }
