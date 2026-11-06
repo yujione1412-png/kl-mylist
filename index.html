@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.12
+  KLマイリスト（klmanga.works 用の読書メモ） v1.4.13
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,14 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.13 確認を速くする＋新しい最新話で最終メモの日付を更新
+          ・別のアプリに移った状態でも確認を進めることは、Webアプリの
+            仕組み上できない（裏側ではスマホに止められる）。
+            代わりに、まとめて確認を3作品ずつの並行に変えて速く終わる
+            ようにした。途中で別アプリに移って止まっても、アプリに
+            戻ると残りが自動で再開する（古い順なので途中から続く）
+          ・確認で、これまでより先の最新話が取れたら、最終メモの日付
+            （updatedAt）もその日時に更新するようにした
   v1.4.12 確認の進み具合の表示と、確認の順番の変更
           ・まとめて確認している間、一覧の上に「新しい話を確認中… ○/○作品」
             と進み具合を表示するようにした。自動確認では、確認が必要な
@@ -814,7 +822,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.12';
+const APP_VERSION = '1.4.13';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -1164,8 +1172,13 @@ async function checkItem(it, force){
   if (info && info.cover && info.cover !== it.cover && !it.coverManual) it.cover = info.cover;
   const eps = info ? info.eps : null;
   if (eps){
+    // これまで知っていた最新話より先の話が取れたら「新しい最新話を取得した」とみなし、
+    // 最終メモの日付（一覧の並びや日付表示に使う）も今に更新する
+    const prevMax = (Array.isArray(it.chapters) && it.chapters.length) ? Math.max(...it.chapters) : null;
+    const newMax = eps.length ? Math.max(...eps) : null;
     it.chapters = eps;
     it.checkedAt = Date.now();
+    if (newMax !== null && (prevMax === null || newMax > prevMax + 1e-9)) it.updatedAt = Date.now();
     noteEpisodeExists(it, it.episode);
   }else{
     it.lastTry = Date.now();
@@ -1192,12 +1205,23 @@ async function runCheckBatch(list, force, gapMs){
   checkBatchRunning = true;
   checkProgress = { done: 0, total: queue.length };
   render();
-  for (const it of queue){
-    await checkItem(it, force);
-    checkProgress.done++;
-    render();
-    if (gapMs) await new Promise(r => setTimeout(r, gapMs));
+  /* 3作品ずつ並行して確認し、全体を速く終わらせる。
+     別のアプリに移るとスマホ側で止められることがあるため、開いている間に
+     終わりやすくするため（開始する順番は、古い順の並びのまま） */
+  const PARALLEL = 3;
+  let idx = 0;
+  async function worker(){
+    while (idx < queue.length){
+      const it = queue[idx++];
+      await checkItem(it, force);
+      checkProgress.done++;
+      render();
+      if (gapMs) await new Promise(r => setTimeout(r, gapMs));
+    }
   }
+  const workers = [];
+  for (let i = 0; i < Math.min(PARALLEL, queue.length); i++) workers.push(worker());
+  await Promise.all(workers);
   checkProgress = null;
   checkBatchRunning = false;
   render();
