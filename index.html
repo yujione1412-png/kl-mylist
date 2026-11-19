@@ -14,7 +14,7 @@
 <title>KLマイリスト｜読んだ話数のメモ</title>
 <!--
 ═══════════════════════════════════════════════════════════════════════════
-  KLマイリスト（klmanga.works 用の読書メモ） v1.4.13
+  KLマイリスト（klmanga 用の読書メモ） v1.4.15
 
   気に入った作品を登録して、「何話まで読んだか」を記録する自分専用のアプリです。
   ・データは、この端末のブラウザの中だけに保存されます（サーバーには送りません）
@@ -49,6 +49,23 @@
           ・一覧に「新しい話あり：第○話」「最新話まで読了」の表示を追加
           ・サイトを開く／作品ページ／次の話は、Androidでは Chrome で開くようにした
             （アプリ内画面だとアドレスバーが無く、「KLに記録」が使えないため）
+  v1.4.15 サイトのドメイン移転（klmanga.works → klmanga.tips）への対応
+          ・サイトが klmanga.tips に移転し、旧ドメインの作品ページURLは
+            パスを引き継がずトップページへ飛ぶようになった。そのため
+            確認では話数が1つも取れず、新しい話が反映されなくなっていた
+          ・登録済みの作品URLと表紙URLは、開いたときに新しいドメインへ
+            自動で書き換える。書き換えた作品は確認日時をリセットし、
+            開いてすぐ全作品を確認し直す
+          ・「サイトを開く」のリンク先も新しいドメインにした
+          ・話数が取れなかったときは「確認できた」と扱わないようにした
+            （表紙だけ取れた場合に「最新話まで読了」と誤って出さないため）
+  v1.4.14 サイトを開くボタン類が反応しない問題への対応
+          ・開く処理のコード自体は以前と変えていないのに、「サイトを開く」
+            「作品ページ」「次の話を読む」だけが反応しなくなった。
+            プログラムで作ったリンクを押す方式が、Chrome側の仕様変更で
+            弾かれるようになった可能性が高い
+          ・そのため、ボタン自体を本物のリンク（<a>）に作り替えた。
+            リンク先はこれまで通り、Chromeを指定した intent の形
   v1.4.13 確認を速くする＋新しい最新話で最終メモの日付を更新
           ・別のアプリに移った状態でも確認を進めることは、Webアプリの
             仕組み上できない（裏側ではスマホに止められる）。
@@ -379,7 +396,7 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 <header>
   <div class="h-row">
     <h1><span class="logo">KL</span>マイリスト</h1>
-    <button class="h-btn" onclick="openSiteTop()">サイトを開く</button>
+    <a class="h-btn" id="siteTopLink" href="https://klmanga.tips/" rel="noopener">サイトを開く</a>
     <button class="h-btn" id="backupBtn">設定</button>
   </div>
   <div id="summary"></div>
@@ -416,10 +433,10 @@ textarea.f-in{ min-height:64px; resize:vertical; }
 <div id="sheetBack"></div>
 <div id="sheet">
   <h2 id="sheetTitle">作品を追加</h2>
-  <p class="hint">klmanga.works で作品のページを開いて、URLをコピーして貼ると、作品名が自動で入ります。話のページのURLを貼っても大丈夫です（作品ページに直して、話数も取り出します）。</p>
+  <p class="hint">klmanga.tips で作品のページを開いて、URLをコピーして貼ると、作品名が自動で入ります。話のページのURLを貼っても大丈夫です（作品ページに直して、話数も取り出します）。旧アドレス（klmanga.works）のURLを貼っても、新しいアドレスに直して登録します。</p>
 
   <label class="f-label">作品ページのURL</label>
-  <input class="f-in" id="fUrl" type="url" inputmode="url" placeholder="https://klmanga.works/manga-raw/…" autocomplete="off">
+  <input class="f-in" id="fUrl" type="url" inputmode="url" placeholder="https://klmanga.tips/manga-raw/…" autocomplete="off">
 
   <label class="f-label">作品名</label>
   <input class="f-in" id="fTitle" type="text" placeholder="作品名" autocomplete="off">
@@ -555,10 +572,27 @@ function parseChapterUrl(url){
     return { seriesUrl: u.origin + m[1], episode: Math.round(ep * 10) / 10 };
   }catch(e){ return null; }
 }
+/* サイトの現在のドメイン。
+   2026年にサイトは klmanga.works から klmanga.tips へ移転し、
+   旧ドメインのURLは作品ページへは届かずトップページへ飛ぶようになった。
+   そのため、klmanga の別ドメインで書かれたURLは、現在のドメインに直して使う
+   （作品名の部分や画像の場所は移転先でも同じ） */
+const CURRENT_SITE_HOST = 'klmanga.tips';
+function currentSiteUrl(url){
+  try{
+    const u = new URL(url);
+    if (/^klmanga\./i.test(u.hostname) && u.hostname.toLowerCase() !== CURRENT_SITE_HOST){
+      u.hostname = CURRENT_SITE_HOST;
+      u.protocol = 'https:';
+      return u.href;
+    }
+    return url;
+  }catch(e){ return url; }
+}
 // 作品ページのURLを取り出す（話のURLが入っていても作品ページに直す）
 function seriesUrlOf(url){
   const ch = parseChapterUrl(url);
-  return ch ? ch.seriesUrl : url;
+  return currentSiteUrl(ch ? ch.seriesUrl : url);
 }
 // 話数 → URLの末尾（188 → chapter-188/、188.2 → chapter-188-2/、188.15 → chapter-188-15/）
 function epToSlug(ep){
@@ -648,6 +682,28 @@ function seriesKeyOf(url){
 function findItemBySeries(url){
   const key = seriesKeyOf(url);
   return items.find(x => seriesKeyOf(x.url) === key);
+}
+/* 登録済みのURLを、サイトの現在のドメインへ書き換える（ドメイン移転への対応）。
+   作品URLを書き換えた作品は、前回の確認結果を使い回さず、開いてすぐ確認し直す
+   ように確認日時をリセットする。表紙URLも同じドメインなら一緒に直す */
+function migrateSiteUrls(){
+  let changed = 0;
+  for (const it of items){
+    const nu = currentSiteUrl(it.url || '');
+    if (nu !== it.url){
+      it.url = nu;
+      it.checkedAt = 0;
+      delete it.lastTry;
+      changed++;
+    }
+    if (it.cover){
+      const nc = currentSiteUrl(it.cover);
+      if (nc !== it.cover) it.cover = nc;
+    }
+    if (it.lastUrl) it.lastUrl = currentSiteUrl(it.lastUrl);
+  }
+  if (changed) save();
+  return changed;
 }
 /* すでに同じ作品が複数できてしまっていたら、1つにまとめる（進み具合が大きい方を残す） */
 function mergeDuplicates(){
@@ -757,8 +813,8 @@ function render(){
     let primaryBtn = '';
     let nextInfo = '';
     if (next !== null){
-      primaryBtn = '<button class="btn primary" onclick="openNext(\'' + it.id + '\')">' +
-        (ep > 0 ? '次の話（第' + fmtEp(next) + '話）を読む' : '第' + fmtEp(next) + '話から読む') + '</button>';
+      primaryBtn = '<a class="btn primary" href="' + esc(extHref(chapterUrlFor(it, next))) + '" rel="noopener">' +
+        (ep > 0 ? '次の話（第' + fmtEp(next) + '話）を読む' : '第' + fmtEp(next) + '話から読む') + '</a>';
     }else if (!known){
       nextInfo = checkingIds.has(it.id)
         ? '<div class="next-info">新しい話があるか確認しています…</div>'
@@ -792,7 +848,7 @@ function render(){
       nextInfo +
       '<div class="card-actions">' +
         primaryBtn +
-        '<button class="' + (primaryBtn ? 'btn small' : 'btn') + '" onclick="openSeries(\'' + it.id + '\')">作品ページ</button>' +
+        '<a class="' + (primaryBtn ? 'btn small' : 'btn') + '" href="' + esc(extHref(seriesUrlOf(it.url))) + '" rel="noopener">作品ページ</a>' +
         '<button class="btn small" onclick="openEdit(\'' + it.id + '\')">編集</button>' +
       '</div>' +
     '</div>';
@@ -822,7 +878,7 @@ function toggleFav(id){
    追加・編集シート
    ════════════════════════════════════════ */
 let editingId = null;
-const APP_VERSION = '1.4.13';
+const APP_VERSION = '1.4.15';
 let sheetStatus = 'reading';
 let pendingLastUrl = ''; // ブックマークレット経由で来た「最後に読んだ話のURL」（保存時に一緒に覚える）
 
@@ -870,7 +926,7 @@ function saveSheet(){
   let ep = Math.max(0, Math.round((parseFloat($('fEp').value) || 0) * 10) / 10);
   const memo = $('fMemo').value.trim();
   const coverInput = $('fCover').value.trim();
-  const coverManual = /^https?:\/\//i.test(coverInput) ? coverInput : '';
+  const coverManual = /^https?:\/\//i.test(coverInput) ? currentSiteUrl(coverInput) : '';
   if (!url || !/^https?:\/\//i.test(url)){ toast('作品ページのURLを入れてください'); return; }
   if (!title){ toast('作品名を入れてください'); return; }
 
@@ -884,6 +940,9 @@ function saveSheet(){
   }
   if (!lastUrl && pendingLastUrl){ lastUrl = pendingLastUrl; }
   pendingLastUrl = '';
+  // 旧ドメインで貼られた場合も、現在のドメインに直して保存する
+  url = currentSiteUrl(url);
+  if (lastUrl) lastUrl = currentSiteUrl(lastUrl);
 
   if (editingId){
     const it = items.find(x => x.id === editingId);
@@ -954,6 +1013,7 @@ function importData(file){
       if (!clean.length){ toast('読み込める作品がありませんでした'); return; }
       if (!confirm(clean.length + ' 作品を読み込みます。今のデータは上書きされます。よろしいですか？')) return;
       items = clean;
+      migrateSiteUrls(); // 旧ドメインのバックアップでも、現在のドメインに直す
       mergeDuplicates(); // 読み込んだ中にも同じ作品が複数あれば、1つにまとめる
       save(); render();
       $('bkSheet').style.display = 'none';
@@ -1185,7 +1245,7 @@ async function checkItem(it, force){
     if (!Array.isArray(it.chapters)) failedIds.add(it.id);
   }
   save(); render();
-  return !!info; // ページを取り寄せられたかどうかを返す
+  return !!eps; // 話数が取れたかどうかを返す（表紙だけ取れても「確認できた」とは言わない）
 }
 /* まとめて確認するときの進み具合と、確認の順番。
    順番は「前回確認した日時が古い順」（まだ確認できていない作品を先にする）。
@@ -1276,13 +1336,15 @@ function coverImgErr(img){
    Androidでは Chrome アプリを指定して開くことで、アドレスバーのあるタブにする。
    ════════════════════════════════════════ */
 /* 「サイトを開く」：最初の一度だけ、本物のタブへ移す手順を案内する */
-function openSiteTop(){
-  if (!localStorage.getItem('kl_tip_chrome_tab')){
-    const ok = confirm('サイトを開きます。\n\n作品を探す続きを残したいときは、開いた画面の右上「︙」→「Chromeで開く」を押して、本物のタブに移してから探してください。\n（共有で記録しても、そのタブと履歴は残ります）');
-    try{ localStorage.setItem('kl_tip_chrome_tab', '1'); }catch(e){ /* 何もしない */ }
-    if (!ok) return;
+/* サイトを開くためのリンク先を作る（Androidでは Chrome を指定した intent の形）。
+   以前は、ボタンから「プログラムで作ったリンクを押す」方式で開いていたが、
+   Chromeの仕様変更らしく、その方式では反応しなくなったため、
+   画面上の本物のリンク（<a>）にこのURLを入れて、直接押してもらう形に変えた */
+function extHref(url){
+  if (/Android/i.test(navigator.userAgent)){
+    try{ return intentUrlFor(url); }catch(e){ /* 通常のURLのままにする */ }
   }
-  openExternal('https://klmanga.works/');
+  return url;
 }
 function intentUrlFor(url){
   const u = new URL(url);
@@ -1293,36 +1355,6 @@ function intentUrlFor(url){
     ';package=com.android.chrome' +
     ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
 }
-function openExternal(url){
-  if (/Android/i.test(navigator.userAgent)){
-    try{
-      const iurl = intentUrlFor(url);
-      /* v1.3.1までは住所を書き換える方式だったが、アプリとして起動している状態では
-         アプリ内画面に回されてしまう端末があったため、リンクを押す方式に変えた */
-      const a = document.createElement('a');
-      a.href = iurl;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      return;
-    }catch(e){ /* 通常の開き方に切り替える */ }
-  }
-  window.open(url, '_blank', 'noopener');
-}
-function openNext(id){
-  const it = items.find(x => x.id === id);
-  if (!it) return;
-  const next = nextChapterOf(it);
-  if (next === null) return;
-  openExternal(chapterUrlFor(it, next));
-}
-function openSeries(id){
-  const it = items.find(x => x.id === id);
-  if (!it) return;
-  openExternal(seriesUrlOf(it.url));
-}
-
 /* ════════════════════════════════════════
    イベント
    ════════════════════════════════════════ */
@@ -1349,6 +1381,16 @@ document.querySelectorAll('#filterChips .chip').forEach(ch =>
 $('searchBox').addEventListener('input', () => { query = $('searchBox').value.trim(); render(); });
 $('sortSel').addEventListener('change', render);
 $('recheckBtn').addEventListener('click', recheckAll);
+// 「サイトを開く」は本物のリンク。開く先を intent の形に差し替え、最初の一度だけ案内を出す
+$('siteTopLink').href = extHref('https://klmanga.tips/');
+$('siteTopLink').addEventListener('click', e => {
+  let shown = '1';
+  try{ shown = localStorage.getItem('kl_tip_chrome_tab') || ''; }catch(err){ /* そのまま開く */ }
+  if (shown) return;
+  const ok = confirm('サイトを開きます。\n\n作品を探す続きを残したいときは、開いた画面の右上「︙」→「Chromeで開く」を押して、本物のタブに移してから探してください。\n（共有で記録しても、そのタブと履歴は残ります）');
+  try{ localStorage.setItem('kl_tip_chrome_tab', '1'); }catch(err){ /* 何もしない */ }
+  if (!ok) e.preventDefault();
+});
 $('backupBtn').addEventListener('click', () => {
   const ok = /^https?:$/.test(location.protocol);
   $('bmCode').value = ok ? bookmarkletCode() : '（公開されたページで開くと、ここにコードが出ます）';
@@ -1399,6 +1441,7 @@ $('importFile').addEventListener('change', e => {
 });
 
 $('appVer').textContent = 'KLマイリスト　バージョン ' + APP_VERSION;
+migrateSiteUrls(); // サイトのドメイン移転に合わせ、登録済みURLを現在のドメインへ書き換える
 const mergedCount = mergeDuplicates(); // 同じ作品が複数できていたら、開いたときに1つにまとめる
 render();
 if (mergedCount) toast('同じ作品が複数あったので、1つにまとめました');
